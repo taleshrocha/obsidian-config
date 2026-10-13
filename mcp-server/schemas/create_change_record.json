@@ -1,0 +1,59 @@
+{
+  "name": "create_change_record",
+  "description": "Create a formal, sequentially numbered Change record (CHG-YYYY-MM-DD-NNN) in 08 - Changes/YYYY/ following vault standards, and optionally open it in the Obsidian GUI.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "description": "Short descriptive title of the change (e.g. 'Deploy do Backend v2')."
+      },
+      "server": {
+        "type": "string",
+        "description": "Affected server (e.g. 'app-prod-01' or 'workstation-01')."
+      },
+      "service": {
+        "type": "string",
+        "description": "Affected service (e.g. 'PostgreSQL', 'Keycloak', 'Docker Compose')."
+      },
+      "project": {
+        "type": "string",
+        "description": "Affected project (e.g. 'Org - Projeto' or 'Cross-Organization')."
+      },
+      "risk": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "description": "Risk evaluation."
+      },
+      "description": {
+        "type": "string",
+        "description": "Motivation and description of changes made."
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "proposed",
+          "in-progress",
+          "completed"
+        ],
+        "description": "Change status (default: 'completed')."
+      },
+      "open_gui": {
+        "type": "boolean",
+        "description": "Whether to immediately open the created note in Obsidian GUI."
+      }
+    },
+    "required": [
+      "title",
+      "server",
+      "service",
+      "project",
+      "risk",
+      "description"
+    ]
+  }
+}

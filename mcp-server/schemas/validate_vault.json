@@ -1,0 +1,8 @@
+{
+  "name": "validate_vault",
+  "description": "Execute the official vault integrity validator (bin/vault-validate deste repositório) and return structure, link and secret check status.",
+  "parameters": {
+    "type": "object",
+    "properties": {}
+  }
+}

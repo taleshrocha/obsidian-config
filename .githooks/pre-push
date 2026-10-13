@@ -1,0 +1,5 @@
+#!/bin/sh
+# Antes de publicar: barreira de privacidade e testes.
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+sh "$DIR/lib/runpy.sh" "$DIR/tools/privacy_gate.py" || exit 1
+exec sh "$DIR/lib/runpy.sh" "$DIR/tests/run_tests.py"

@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+"""
+vault-health: Obsidian Work Vault Health & Graph Auditor
+
+Audita a saúde do vault:
+1. Grafo e Conexões: Identifica notas órfãs (0 backlinks) e densidade de conexões.
+2. Atualização Temporal: Alerta sobre notas com 'last_verified' > N dias (default: 60) ou ausentes em infraestrutura.
+3. Sincronização de Filesystem: Identifica repositórios Git em disco (o diretório de projetos (projects_dir)) ainda não catalogados em 03 - Repositories.
+4. Integridade Estrutural: Opcionalmente executa o validador oficial (validate-obsidian-work-vault).
+
+Uso:
+    vault-health [--vault-path PATH] [--projects-dir PATH] [--max-days 60] [--validate] [--json] [--strict]
+"""
+
+import sys
+import os
+import re
+import json
+import argparse
+import subprocess
+from pathlib import Path
+from datetime import datetime
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import vaultcfg  # noqa: E402
+
+# ANSI Colors
+CYAN = "\033[96m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+RED = "\033[91m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+
+def resolve_vault_path(custom_path=None):
+    return vaultcfg.vault_dir(custom_path)
+
+def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False):
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "vault_path": str(vault_dir),
+        "total_notes": 0,
+        "total_links": 0,
+        "stale_notes": [],
+        "orphan_notes": [],
+        "missing_last_verified_critical": [],
+        "uncataloged_repos": [],
+        "validator_output": None,
+        "health_score": 100,
+        "status": "HEALTHY"
+    }
+
+    # 1. Scan markdown files
+    md_files = [p for p in vault_dir.rglob("*.md") if not any(part.startswith(".") for part in p.parts)]
+    results["total_notes"] = len(md_files)
+
+    targets = {}
+    for p in md_files:
+        rel = p.relative_to(vault_dir)
+        targets[p.stem] = rel
+        targets[str(rel)] = rel
+
+    incoming = {p.stem: set() for p in md_files}
+    link_pattern = re.compile(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]')
+
+    now = datetime.now()
+    critical_prefixes = ("04 - Servers/", "05 - Services/", "07 - Infrastructure/")
+
+    for p in md_files:
+        rel = p.relative_to(vault_dir)
+        rel_str = str(rel)
+        try:
+            content = p.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        # Link extraction
+        for match in link_pattern.finditer(content):
+            target = match.group(1).strip()
+            target_stem = Path(target).stem
+            if target_stem in incoming:
+                incoming[target_stem].add(rel_str)
+            elif target in incoming:
+                incoming[target].add(rel_str)
+            results["total_links"] += 1
+
+        # Frontmatter parse
+        has_last_verified = False
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                raw_yaml = parts[1]
+                for line in raw_yaml.splitlines():
+                    if line.strip().startswith("last_verified:"):
+                        has_last_verified = True
+                        val = line.split(":", 1)[1].strip().strip("'\"")
+                        try:
+                            d = datetime.strptime(val, "%Y-%m-%d")
+                            days = (now - d).days
+                            if days > max_days:
+                                results["stale_notes"].append({
+                                    "file": rel_str,
+                                    "last_verified": val,
+                                    "days_stale": days
+                                })
+                        except Exception:
+                            pass
+
+        if not has_last_verified and any(rel_str.startswith(cp) for cp in critical_prefixes):
+            results["missing_last_verified_critical"].append(rel_str)
+
+    # 2. Orphans check
+    # Ignore templates, daily notes / meetings, dashboard, README, setup
+    exempt_patterns = ["99 - Templates", "13 - Meetings", "00 - Dashboard", "README", "setup.sh"]
+    for stem, rel in targets.items():
+        if "/" in stem:
+            continue
+        rel_str = str(rel)
+        if any(pat in rel_str for pat in exempt_patterns):
+            continue
+        # Also exempt year archives or changes
+        if len(incoming.get(stem, set())) == 0:
+            results["orphan_notes"].append(rel_str)
+
+    # 3. Uncataloged repositories on disk
+    if projects_dir and os.path.isdir(projects_dir):
+        p_path = Path(projects_dir)
+        repo_notes = list((vault_dir / "03 - Repositories").rglob("*.md"))
+        cataloged = set()
+        for r in repo_notes:
+            cataloged.add(r.stem.lower())
+            if " - " in r.stem:
+                cataloged.add(r.stem.split(" - ", 1)[1].lower())
+
+        git_dirs = [p.parent for p in p_path.rglob(".git")]
+        for gd in git_dirs:
+            name = gd.name.lower()
+            matched = False
+            if name in cataloged:
+                matched = True
+            else:
+                for c in cataloged:
+                    if c in name or name in c:
+                        matched = True
+                        break
+            if not matched:
+                results["uncataloged_repos"].append(str(gd))
+
+    # 4. Optional validator check
+    if run_validation:
+        validator_script = vault_dir / "16 - Tools" / "Cross-Organization" / "bin" / "validate-obsidian-work-vault"
+        if validator_script.is_file() and os.access(validator_script, os.X_OK):
+            try:
+                res = subprocess.run([str(validator_script), str(vault_dir)], capture_output=True, text=True, timeout=15)
+                results["validator_output"] = {
+                    "returncode": res.returncode,
+                    "stdout": res.stdout,
+                    "stderr": res.stderr
+                }
+                if res.returncode != 0:
+                    results["health_score"] -= 30
+            except Exception as e:
+                results["validator_output"] = {"error": str(e)}
+
+    # Score calculation
+    deductions = (
+        len(results["stale_notes"]) * 2 +
+        len(results["orphan_notes"]) * 1 +
+        len(results["missing_last_verified_critical"]) * 2 +
+        len(results["uncataloged_repos"]) * 1
+    )
+    results["health_score"] = max(0, min(100, results["health_score"] - deductions))
+    if results["health_score"] < 70:
+        results["status"] = "WARNING"
+    if results["health_score"] < 50:
+        results["status"] = "CRITICAL"
+
+    return results
+
+def print_report(results, use_color=True):
+    c = {
+        "cyan": CYAN if use_color else "",
+        "green": GREEN if use_color else "",
+        "yellow": YELLOW if use_color else "",
+        "red": RED if use_color else "",
+        "bold": BOLD if use_color else "",
+        "dim": DIM if use_color else "",
+        "reset": RESET if use_color else ""
+    }
+
+    score = results["health_score"]
+    score_color = c["green"] if score >= 85 else (c["yellow"] if score >= 65 else c["red"])
+
+    print(f"\n{c['bold']}{c['cyan']}╔═══════════════════════════════════════════════════════════════════════╗{c['reset']}")
+    print(f"{c['bold']}{c['cyan']}║             Obsidian Work Vault · Knowledge Health Auditor            ║{c['reset']}")
+    print(f"{c['bold']}{c['cyan']}╚═══════════════════════════════════════════════════════════════════════╝{c['reset']}")
+    print(f"  {c['dim']}Vault:{c['reset']} {results['vault_path']}")
+    print(f"  {c['dim']}Data:{c['reset']}  {results['timestamp']}")
+    print(f"  {c['bold']}Health Score:{c['reset']} {score_color}{score}/100 [{results['status']}]{c['reset']}\n")
+
+    print(f"{c['bold']}📊 Métricas do Grafo:{c['reset']}")
+    print(f"  • Total de notas Markdown: {c['bold']}{results['total_notes']}{c['reset']}")
+    print(f"  • Total de conexões internas: {c['bold']}{results['total_links']}{c['reset']}")
+    avg_links = (results['total_links'] / results['total_notes']) if results['total_notes'] else 0
+    print(f"  • Média de conexões por nota: {avg_links:.1f}")
+
+    print(f"\n{c['bold']}🕸️  Notas Órfãs (sem backlinks):{c['reset']}")
+    if results["orphan_notes"]:
+        print(f"  {c['yellow']}⚠️  {len(results['orphan_notes'])} notas sem nenhuma referência interna:{c['reset']}")
+        for item in results["orphan_notes"][:10]:
+            print(f"    - [[{item}]]")
+        if len(results["orphan_notes"]) > 10:
+            print(f"    ... e mais {len(results['orphan_notes']) - 10} notas.")
+    else:
+        print(f"  {c['green']}✓ Nenhuma nota órfã detectada no vault.{c['reset']}")
+
+    print(f"\n{c['bold']}⏳ Atualização Temporal (Frescura da Documentação):{c['reset']}")
+    if results["stale_notes"]:
+        print(f"  {c['yellow']}⚠️  {len(results['stale_notes'])} notas desatualizadas (> limite):{c['reset']}")
+        for s in results["stale_notes"][:10]:
+            print(f"    - [[{s['file']}]] ({s['days_stale']} dias sem verificação · última em {s['last_verified']})")
+    else:
+        print(f"  {c['green']}✓ Todas as notas verificadas estão dentro do prazo estipulado.{c['reset']}")
+
+    if results["missing_last_verified_critical"]:
+        print(f"  {c['yellow']}⚠️  {len(results['missing_last_verified_critical'])} notas de infraestrutura sem tag 'last_verified':{c['reset']}")
+        for m in results["missing_last_verified_critical"][:5]:
+            print(f"    - [[{m}]]")
+
+    print(f"\n{c['bold']}💾 Sincronização com Repositórios em Disco:{c['reset']}")
+    if results["uncataloged_repos"]:
+        print(f"  {c['yellow']}⚠️  {len(results['uncataloged_repos'])} repositórios Git em o diretório de projetos (projects_dir) não catalogados em '03 - Repositories':{c['reset']}")
+        for u in results["uncataloged_repos"][:8]:
+            print(f"    - {u}")
+        if len(results["uncataloged_repos"]) > 8:
+            print(f"    ... e mais {len(results['uncataloged_repos']) - 8} repositórios.")
+    else:
+        print(f"  {c['green']}✓ Todos os repositórios em disco possuem registro correspondente no vault.{c['reset']}")
+
+    if results["validator_output"]:
+        print(f"\n{c['bold']}🛡️  Validador Oficial de Integridade:{c['reset']}")
+        v = results["validator_output"]
+        if v.get("returncode") == 0:
+            print(f"  {c['green']}✓ Validador passou com sucesso (0 erros, 0 segredos expostos).{c['reset']}")
+        else:
+            print(f"  {c['red']}❌ Validador falhou com código {v.get('returncode')}.{c['reset']}")
+            if v.get("stdout"):
+                print(f"{c['dim']}{v['stdout'].strip()}{c['reset']}")
+
+    print(f"\n{c['dim']}Audit concluído.{c['reset']}\n")
+
+def main():
+    parser = argparse.ArgumentParser(description="Auditor de Saúde e Grafo do Obsidian Work Vault")
+    parser.add_argument("--vault-path", default=None, help="Caminho raiz do vault do Obsidian")
+    parser.add_argument("--projects-dir", default=vaultcfg.load()["projects_dir"], help="Diretório de projetos no disco")
+    parser.add_argument("--max-days", type=int, default=60, help="Limite de dias para considerar uma nota desatualizada (default: 60)")
+    parser.add_argument("--validate", action="store_true", help="Executar também o validate-obsidian-work-vault")
+    parser.add_argument("--json", action="store_true", dest="as_json", help="Exportar resultado estruturado em JSON")
+    parser.add_argument("--strict", action="store_true", help="Retornar código de erro se o score for < 80")
+    args = parser.parse_args()
+
+    vault_dir = resolve_vault_path(args.vault_path)
+    if not vault_dir.is_dir():
+        print(f"Erro: Diretório do vault não encontrado: {vault_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    results = audit_vault(
+        vault_dir=vault_dir,
+        projects_dir=args.projects_dir,
+        max_days=args.max_days,
+        run_validation=args.validate
+    )
+
+    if args.as_json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+    else:
+        is_tty = sys.stdout.isatty()
+        print_report(results, use_color=is_tty)
+
+    if args.strict and results["health_score"] < 80:
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

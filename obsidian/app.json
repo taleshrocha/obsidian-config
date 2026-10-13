@@ -1,0 +1,28 @@
+{
+  "showLineNumber": true,
+  "readableLineLength": false,
+  "showUnsupportedFiles": true,
+  "attachmentFolderPath": "90 - Files/Attachments",
+  "useMarkdownLinks": false,
+  "alwaysUpdateLinks": true,
+  "livePreview": true,
+  "newFileLocation": "current",
+  "defaultViewMode": "preview",
+  "showInlineTitle": false,
+  "strictLineBreaks": false,
+  "propertiesInDocument": "hidden",
+  "foldHeading": true,
+  "foldIndent": true,
+  "settingsPopoutWindow": false,
+  "promptDelete": false,
+  "vimMode": true,
+  "userIgnoreFilters": [
+    "**/node_modules/**",
+    "node_modules",
+    "**/.venv/**",
+    ".venv",
+    "**/dist/**",
+    "**/build/**",
+    "**/.pytest_cache/**"
+  ]
+}

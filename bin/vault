@@ -1,0 +1,477 @@
+#!/usr/bin/env python3
+"""
+vault: CLI unificada do vault Obsidian (Linux, macOS e Windows).
+
+Uso: vault <comando> [argumentos]   (vault help lista os comandos)
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+BIN_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(BIN_DIR.parent / "lib"))
+import vaultcfg  # noqa: E402
+
+COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+if os.name == "nt" and COLOR:
+    os.system("")  # habilita sequências ANSI no console do Windows
+
+
+def c(code, text):
+    return f"\033[{code}m{text}\033[0m" if COLOR else text
+
+
+CYAN, GREEN, YELLOW, RED, BOLD, DIM = "96", "92", "93", "91", "1", "2"
+
+CFG = vaultcfg.load()
+VAULT = Path(CFG["vault_dir"])
+os.environ["OBSIDIAN_VAULT_PATH"] = str(VAULT)
+
+COMMANDS = [
+    ("status, info", "Resumo do vault: notas, canvases e estado do Git"),
+    ("ingest <arquivo> [cat]", "Copia fonte bruta para 90 - Files/Sources e cria nota de síntese"),
+    ("sources, backlog", "Fontes brutas pendentes e tarefas (vault-sources)"),
+    ("lint", "Validação estrita + saúde do grafo"),
+    ("validate", "Validador de integridade (vault-validate)"),
+    ("health [--json]", "Notas órfãs, frescor e repositórios não catalogados (vault-health)"),
+    ("search <termo>", "Busca textual"),
+    ("meta <nota>", "Só o frontmatter YAML"),
+    ("outline <nota>", "Cabeçalhos da nota"),
+    ("section <nota> <seção>", "Só uma seção"),
+    ("links <nota>", "WikiLinks de saída"),
+    ("new <tipo> <nome> [opts]", "Nota nova a partir de 99 - Templates"),
+    ("open [nota]", "Abre no Obsidian"),
+    ("change [título]", "Change record (CHG-...)"),
+    ("log <mensagem>", "Entrada no diário de hoje"),
+    ("canvas", "Regenera os canvases de topologia"),
+    ("sync-agents", "Instruções, skills e MCP dos agentes"),
+    ("sync", "Valida, comita e envia o vault"),
+    ("help", "Esta ajuda"),
+]
+
+
+def banner():
+    print(c(BOLD + ";" + CYAN, f"Obsidian Vault · {CFG['vault_name']}"))
+    print(f"  {c(DIM, 'Vault:')} {VAULT}\n")
+
+
+def show_help():
+    banner()
+    print(c(BOLD, "Uso:") + " vault <comando> [opções]\n")
+    for cmd, desc in COMMANDS:
+        print(f"  {c(CYAN, cmd.ljust(26))}{desc}")
+    print()
+
+
+def run_tool(name, *args):
+    """Roda outra ferramenta deste repositório com o mesmo interpretador."""
+    return subprocess.call([sys.executable, str(BIN_DIR / name), *args])
+
+
+def walk_md():
+    for root, dirs, files in os.walk(VAULT):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
+        for f in files:
+            if f.endswith(".md"):
+                yield Path(root) / f
+
+
+def resolve_note(target):
+    p = Path(target)
+    if p.is_absolute() and p.exists():
+        return p
+    if (VAULT / target).exists():
+        return VAULT / target
+    clean = target[:-3] if target.endswith(".md") else target
+    files = list(walk_md())
+    for f in files:
+        if f.stem.lower() == clean.lower():
+            return f
+    for f in files:
+        if clean.lower() in f.name.lower():
+            return f
+    sys.exit(c(RED, f'Erro: nota "{target}" não encontrada no vault.'))
+
+
+def rel(p):
+    return Path(p).relative_to(VAULT).as_posix()
+
+
+def need(args, n, usage):
+    if len(args) < n:
+        sys.exit(c(RED, "Erro: argumentos insuficientes.") + f"\nUso: {usage}")
+
+
+def git(*args):
+    return subprocess.run(["git", "-C", str(VAULT), *args], capture_output=True, text=True)
+
+
+def cmd_status(_):
+    banner()
+    notes = sum(1 for _ in walk_md())
+    canvases = sum(1 for _ in VAULT.rglob("*.canvas") if not any(x.startswith(".") for x in _.relative_to(VAULT).parts))
+    branch = git("branch", "--show-current").stdout.strip() or "N/A"
+    dirty = [l for l in git("status", "--short").stdout.splitlines() if l.strip()]
+    print(c(BOLD, "Estatísticas:"))
+    print(f"  • Notas Markdown: {c(BOLD, notes)}")
+    print(f"  • Canvases: {c(BOLD, canvases)}")
+    print(f"  • Branch Git: {c(GREEN, branch)}")
+    print("  • Estado Git: " + (c(GREEN, "working tree limpa") if not dirty else c(YELLOW, f"{len(dirty)} arquivo(s) não comitados")))
+    print()
+
+
+def cmd_lint(args):
+    print(c(BOLD, "[1/2] Validação estrita"))
+    rc = run_tool("vault-validate", str(VAULT))
+    print(c(BOLD, "\n[2/2] Saúde do grafo"))
+    return rc or run_tool("vault-health", *args)
+
+
+def cmd_ingest(args):
+    need(args, 1, "vault ingest <arquivo> [categoria]")
+    src = Path(args[0])
+    category = args[1] if len(args) > 1 else "General"
+    if not src.is_file():
+        sys.exit(c(RED, f"Erro: arquivo '{src}' não encontrado."))
+    dest_dir = VAULT / "90 - Files" / "Sources" / category
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest_dir / src.name)
+    today = datetime.now().strftime("%Y-%m-%d")
+    research_dir = VAULT / "14 - Research" / "Cross-Organization"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    synthesis = research_dir / f"{src.stem} - Sintese e Analise.md"
+    raw_rel = f"90 - Files/Sources/{category}/{src.name}"
+    if not synthesis.exists():
+        synthesis.write_text(f"""---
+type: research
+name: {src.stem} - Síntese e Análise
+topic: {category}
+source_type: ingest
+raw_source: {raw_rel}
+organization: Cross-Organization
+project: Cross-Organization
+date: {today}
+ingested_by: Operator & AI Agent
+status: active
+last_verified: {today}
+---
+
+# {src.stem} · Síntese e Análise
+
+> [!NOTE]
+> **Fonte bruta:** [[{raw_rel}|{src.name}]]
+> **Categoria:** {category} | **Ingestão:** {today}
+
+## 1. Sumário e tese principal
+
+[Síntese compilada]
+
+## 2. Conhecimento extraído
+
+- [Ponto 1]
+
+## 3. Conexões no vault
+
+- [[Cross-Organization]]
+
+## 4. Próximas ações
+
+- [ ] Revisão detalhada
+""", encoding="utf-8")
+    print(c(GREEN, "✓ Fonte bruta copiada para:") + f" {raw_rel}")
+    print(c(GREEN, "✓ Nota de síntese:") + f" {rel(synthesis)}")
+    cmd_log([f"Ingestão de fonte primária '{src.name}' ({category}) em [[{raw_rel}]] e nota [[{rel(synthesis)}]]"], quiet=True)
+    open_in_obsidian(rel(synthesis), launch=False)
+
+
+def cmd_search(args):
+    if args and args[0] in ("-s", "--semantic"):
+        args = args[1:]
+        print(c(YELLOW, "Busca neural desativada por política de desempenho; usando busca textual.\n"))
+    need(args, 1, "vault search <termo>")
+    query = " ".join(args)
+    pat = re.compile(re.escape(query), re.IGNORECASE)
+    print(c(BOLD, f"Buscando '{query}' no vault...\n"))
+    hits = 0
+    for f in walk_md():
+        try:
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for n, line in enumerate(lines, 1):
+            if pat.search(line):
+                print(f"{c(GREEN, f'[[{rel(f)}]]:{n}')} {line.strip()[:200]}")
+                hits += 1
+                if hits >= 25:
+                    return
+    print()
+
+
+TYPE_MAP = {
+    "server": ("04 - Servers", "Server.md", True), "srv": ("04 - Servers", "Server.md", True),
+    "service": ("05 - Services", "Service.md", True), "svc": ("05 - Services", "Service.md", True),
+    "application": ("06 - Applications", "Application.md", True), "app": ("06 - Applications", "Application.md", True),
+    "project": ("02 - Projects", "Project.md", True),
+    "repository": ("03 - Repositories", "Repository.md", True), "repo": ("03 - Repositories", "Repository.md", True),
+    "procedure": ("10 - Procedures", "Procedure.md", True), "sop": ("10 - Procedures", "Procedure.md", True),
+    "runbook": ("10 - Procedures", "Procedure.md", True),
+    "decision": ("12 - Decisions", "Decision.md", False), "adr": ("12 - Decisions", "Decision.md", False),
+    "research": ("14 - Research", "Research.md", True),
+    "person": ("15 - People", "Person.md", True),
+    "tool": ("16 - Tools", "Tool.md", True),
+}
+
+
+def cmd_new(args):
+    usage = "vault new <" + "|".join(sorted(TYPE_MAP)) + "> <nome> [--org O] [--server S] [--project P] [--env E] [--status S]"
+    need(args, 2, usage)
+    etype, name = args[0].lower(), args[1]
+    opts = {"org": "Cross-Organization", "server": "", "project": "", "env": "production", "status": "active"}
+    rest = args[2:]
+    for i in range(0, len(rest) - 1, 2):
+        key = rest[i].lstrip("-")
+        if key in opts:
+            opts[key] = rest[i + 1]
+    if etype not in TYPE_MAP:
+        sys.exit(c(RED, f'Erro: tipo "{etype}" desconhecido.') + f"\nUso: {usage}")
+    folder, template, by_org = TYPE_MAP[etype]
+    tpl = VAULT / "99 - Templates" / template
+    if not tpl.is_file():
+        sys.exit(c(RED, f"Erro: template {tpl} não encontrado."))
+    orgs = vaultcfg.organizations(CFG) + ["Cross-Organization"]
+    org = next((o for o in orgs if o.lower() == opts["org"].lower()), opts["org"])
+    dest_dir = VAULT / folder / org if by_org and orgs != ["Cross-Organization"] else VAULT / folder
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    clean = re.sub(r'[/\\?%*:|"<>]', "-", name).strip()
+    today = datetime.now().strftime("%Y-%m-%d")
+    if etype in ("decision", "adr"):
+        prefix = f"ADR-{today}-" + (f"{vaultcfg.author(CFG)}-" if CFG.get("change_id_author") else "")
+        existing = [int(m.group(1)) for f in dest_dir.iterdir() if (m := re.match(re.escape(prefix) + r"(\d{3})", f.name))]
+        seq = f"{(max(existing) if existing else 0) + 1:03d}"
+        file_name = f"{prefix}{seq} - {clean}.md"
+    else:
+        file_name = f"{clean}.md"
+    dest = dest_dir / file_name
+    if dest.exists():
+        print(c(YELLOW, f"Aviso: [[{rel(dest)}]] já existe."))
+        return
+    content = tpl.read_text(encoding="utf-8")
+    repl = {"name": clean, "organization": org, "project": opts["project"] or f"{org} Project",
+            "server": opts["server"] or "srv-host", "environment": opts["env"], "status": opts["status"],
+            "criticality": "medium", "last_verified": today, "date": today}
+    for k, v in repl.items():
+        content = content.replace("{{" + k + "}}", v)
+    for k, v in (("name", clean), ("organization", org), ("environment", opts["env"]), ("status", opts["status"]),
+                 ("last_verified", today), ("date", today), ("project", opts["project"]), ("server", opts["server"])):
+        if v:
+            content = re.sub(rf"(?m)^{k}:\s*$", f"{k}: {v}", content)
+    dest.write_text(content, encoding="utf-8")
+    print(c(GREEN, f"✓ Nota criada a partir de {template}:") + f" [[{rel(dest)}]]")
+
+
+def cmd_meta(args):
+    need(args, 1, "vault meta <nota>")
+    p = resolve_note(args[0])
+    m = re.search(r"(?s)^---\r?\n(.*?)\r?\n---", p.read_text(encoding="utf-8", errors="replace"))
+    if m:
+        print(f"# [[{rel(p)}]] (Frontmatter YAML)\n---\n{m.group(1).strip()}\n---")
+    else:
+        print(f"Nenhum frontmatter YAML em [[{rel(p)}]].")
+
+
+def cmd_outline(args):
+    need(args, 1, "vault outline <nota>")
+    p = resolve_note(args[0])
+    heads = re.findall(r"(?m)^(#{1,6}\s+.*)", p.read_text(encoding="utf-8", errors="replace"))
+    print(f"# [[{rel(p)}]] (Outline)")
+    print("\n".join(heads) if heads else "(nenhum cabeçalho)")
+
+
+def cmd_section(args):
+    need(args, 2, "vault section <nota> <seção>")
+    p = resolve_note(args[0])
+    wanted = " ".join(args[1:]).strip().lower()
+    found, level, out = False, 0, []
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = re.match(r"^(#{1,6})\s+(.*)", line)
+        if m:
+            lvl, text = len(m.group(1)), m.group(2).strip()
+            if not found and wanted in text.lower():
+                found, level = True, lvl
+                out.append(line)
+                continue
+            if found and lvl <= level:
+                break
+        if found:
+            out.append(line)
+    if not found:
+        sys.exit(f'Seção "{" ".join(args[1:])}" não encontrada em [[{rel(p)}]].')
+    print(f'# [[{rel(p)}]] → Seção: "{" ".join(args[1:])}"\n')
+    print("\n".join(out).strip())
+
+
+def cmd_links(args):
+    need(args, 1, "vault links <nota>")
+    p = resolve_note(args[0])
+    links = sorted(set(re.findall(r"\[\[(.*?)\]\]", p.read_text(encoding="utf-8", errors="replace"))))
+    print(f"# [[{rel(p)}]] ({len(links)} WikiLinks de saída):")
+    for l in links:
+        print(f"- [[{l}]]")
+
+
+def obsidian_cli():
+    return shutil.which("obsidian-cli") or shutil.which("obsidian")
+
+
+def open_in_obsidian(note, launch=True):
+    """Abre via obsidian-cli quando existe; senão usa o URI obsidian:// do sistema."""
+    cli = shutil.which("obsidian-cli")
+    if cli:
+        if subprocess.call([cli, "open", f"file={note}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+            return
+    if not launch:
+        return
+    from urllib.parse import quote
+    uri = f"obsidian://open?vault={quote(VAULT.name)}&file={quote(note)}"
+    if sys.platform == "darwin":
+        subprocess.call(["open", uri])
+    elif os.name == "nt":
+        os.startfile(uri)  # noqa: S606
+    else:
+        subprocess.call(["xdg-open", uri], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def cmd_open(args):
+    note = args[0] if args else "00 - Dashboard"
+    print(c(CYAN, f"Abrindo '{note}' no Obsidian..."))
+    open_in_obsidian(note)
+
+
+def write_change(title, server, service, project, risk, desc, agent="Operator CLI"):
+    today = datetime.now().strftime("%Y-%m-%d")
+    cid, year_dir = vaultcfg.next_change_id(CFG, today)
+    year_dir.mkdir(parents=True, exist_ok=True)
+    clean = re.sub(r'[/\\?%*:|"<>]', "-", title).strip()
+    path = year_dir / f"{cid} - {clean}.md"
+    link = lambda v: f"[[{v}]]" if v else "-"  # noqa: E731
+    author_line = f"author: {vaultcfg.author(CFG)}\n" if CFG.get("change_id_author") else ""
+    path.write_text(f"""---
+type: change
+id: {cid}
+date: {today}
+server: {server}
+service: {service}
+project: {project}
+{author_line}agent: {agent}
+risk: {risk}
+status: completed
+environment: local
+---
+
+# {cid} - {clean}
+
+## Metadados
+
+- **ID:** `{cid}`
+- **Data:** `{today}`
+- **Projeto:** {link(project)}
+- **Servidor:** {link(server)}
+- **Serviço:** {link(service)}
+- **Risco:** `{risk}`
+- **Status:** `completed`
+
+## 1. Motivação e Descrição
+
+{desc}
+
+## 2. Alterações Realizadas
+
+- [x] {desc}
+
+## 3. Validação
+
+- [x] Verificado pelo operador
+""", encoding="utf-8")
+    return cid, path
+
+
+def cmd_change(args):
+    title = " ".join(args) or input("Título da mudança: ").strip()
+    if not title:
+        sys.exit(c(RED, "Erro: título obrigatório."))
+    ask = lambda q, d: input(f"{q} [{d}]: ").strip() or d  # noqa: E731
+    server = ask("Servidor afetado", CFG.get("default_change_server", ""))
+    service = ask("Serviço afetado", "")
+    project = ask("Projeto afetado", "Cross-Organization")
+    risk = ask("Risco (low/medium/high)", "low")
+    desc = ask("Descrição", "Intervenção técnica realizada.")
+    cid, path = write_change(title, server, service, project, risk, desc)
+    print(c(GREEN, "✓ Change criada:") + f" [[{rel(path)}]] ({cid})")
+
+
+def cmd_log(args, quiet=False):
+    need(args, 1, "vault log <mensagem>")
+    now = datetime.now()
+    date_str, time_str = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
+    f = vaultcfg.journal_file(CFG, date_str)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    if not f.exists():
+        jtype = CFG["journal"].get("type", "meeting")
+        who = vaultcfg.author(CFG) if CFG["journal"].get("per_author") else ""
+        title = f"Diário {who} {date_str}".replace("  ", " ") if who else f"Daily Log {date_str}"
+        author_line = f"author: {who}\n" if who else ""
+        f.write_text(f"---\ntype: {jtype}\ntitle: {title}\ndate: {date_str}\n{author_line}status: completed\n---\n\n# {title}\n", encoding="utf-8")
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write(f"\n### [{time_str}] Atividade Operacional\n\n{' '.join(args)}\n")
+    if not quiet:
+        print(c(GREEN, f"✓ Entrada adicionada em [[{rel(f)}]] às {time_str}."))
+
+
+def cmd_sync(_):
+    print(c(BOLD, "1. Instruções dos agentes"))
+    run_tool("sync-agents", "--quiet")
+    print(c(BOLD, "2. Validação"))
+    if run_tool("vault-validate", str(VAULT)) != 0:
+        sys.exit(c(RED, "Validação falhou. Corrija antes de sincronizar."))
+    if not git("status", "--porcelain").stdout.strip():
+        print(c(GREEN, "✓ Nada a sincronizar."))
+        return
+    git("add", "-A")
+    n = len(git("diff", "--cached", "--name-only").stdout.splitlines())
+    r = git("commit", "-m", f"docs(vault): auto-sync {n} arquivo(s) ({datetime.now():%Y-%m-%d %H:%M})")
+    print(r.stdout or r.stderr)
+    g = CFG["git"]
+    r = git("push", g["remote"], g["branch"])
+    print(c(GREEN, "✓ Vault sincronizado.") if r.returncode == 0 else c(RED, r.stderr))
+
+
+def main():
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("help", "--help", "-h"):
+        show_help()
+        return 0
+    cmd, args = argv[0], argv[1:]
+    table = {
+        "status": cmd_status, "info": cmd_status, "lint": cmd_lint, "ingest": cmd_ingest,
+        "validate": lambda a: run_tool("vault-validate", str(VAULT), *a),
+        "health": lambda a: run_tool("vault-health", *a),
+        "sources": lambda a: run_tool("vault-sources", *a), "backlog": lambda a: run_tool("vault-sources", *a),
+        "search": cmd_search, "new": cmd_new, "create": cmd_new,
+        "meta": cmd_meta, "frontmatter": cmd_meta, "outline": cmd_outline, "toc": cmd_outline,
+        "section": cmd_section, "links": cmd_links, "open": cmd_open, "change": cmd_change, "log": cmd_log,
+        "canvas": lambda a: run_tool("generate-canvas", *a), "sync-agents": lambda a: run_tool("sync-agents", *a),
+        "sync": cmd_sync,
+    }
+    if cmd not in table:
+        print(c(RED, f"Comando desconhecido: '{cmd}'\n"))
+        show_help()
+        return 1
+    return table[cmd](args) or 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

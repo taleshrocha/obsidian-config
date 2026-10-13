@@ -1,0 +1,48 @@
+{
+  "data_version": 2,
+  "command_timeout": 5,
+  "templates_folder": "99 - Templates",
+  "templates_pairs": [],
+  "trigger_on_file_creation_mode": "folder",
+  "auto_jump_to_cursor": true,
+  "jump_to_cursor_after_file_name": false,
+  "shell_path": "/bin/bash",
+  "user_scripts_folder": "",
+  "folder_templates": [
+    {
+      "folder": "04 - Servers",
+      "template": "99 - Templates/Server.md"
+    },
+    {
+      "folder": "05 - Services",
+      "template": "99 - Templates/Service.md"
+    },
+    {
+      "folder": "06 - Applications",
+      "template": "99 - Templates/Application.md"
+    },
+    {
+      "folder": "08 - Changes",
+      "template": "99 - Templates/Change.md"
+    },
+    {
+      "folder": "09 - Incidents",
+      "template": "99 - Templates/Incident.md"
+    },
+    {
+      "folder": "10 - Procedures",
+      "template": "99 - Templates/Procedure.md"
+    },
+    {
+      "folder": "12 - Decisions",
+      "template": "99 - Templates/ADR.md"
+    }
+  ],
+  "file_templates": [],
+  "syntax_highlighting": true,
+  "syntax_highlighting_mobile": false,
+  "enabled_templates_hotkeys": [],
+  "startup_templates": [],
+  "intellisense_render": "1",
+  "ignore_folders_on_creation": []
+}

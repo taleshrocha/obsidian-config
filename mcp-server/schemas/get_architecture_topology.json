@@ -1,0 +1,16 @@
+{
+  "name": "get_architecture_topology",
+  "description": "Retrieve a consolidated overview of servers, services, applications and architecture documents for an organization.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "organization": {
+        "type": "string",
+        "description": "Organization name."
+      }
+    },
+    "required": [
+      "organization"
+    ]
+  }
+}

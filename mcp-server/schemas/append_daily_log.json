@@ -1,0 +1,20 @@
+{
+  "name": "append_daily_log",
+  "description": "Append a timestamped entry or meeting log into today's log in 13 - Meetings/YYYY-MM-DD.md.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "string",
+        "description": "Markdown text describing the activity or notes to append."
+      },
+      "heading": {
+        "type": "string",
+        "description": "Section heading (default: 'Atividade do Agente IA')."
+      }
+    },
+    "required": [
+      "content"
+    ]
+  }
+}

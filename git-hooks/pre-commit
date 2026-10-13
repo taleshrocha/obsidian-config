@@ -1,0 +1,4 @@
+#!/bin/sh
+# Pre-commit de vaults (pessoal ou de time). Lógica em pre_commit.py.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec sh "$DIR/../lib/runpy.sh" "$DIR/pre_commit.py" "$@"

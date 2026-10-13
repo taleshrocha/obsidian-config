@@ -1,0 +1,62 @@
+{
+  "plugins": [
+    {
+      "id": "dataview",
+      "version": "0.5.68"
+    },
+    {
+      "id": "obsidian-excalidraw-plugin",
+      "version": "2.28.1"
+    },
+    {
+      "id": "obsidian-git",
+      "version": "2.41.1"
+    },
+    {
+      "id": "obsidian-minimal-settings",
+      "version": "9.0.0"
+    },
+    {
+      "id": "obsidian-style-settings",
+      "version": "1.0.9"
+    },
+    {
+      "id": "obsidian-tasks-plugin",
+      "version": "8.4.0"
+    },
+    {
+      "id": "omnisearch",
+      "version": "1.31.0"
+    },
+    {
+      "id": "recent-files-obsidian",
+      "version": "1.7.10"
+    },
+    {
+      "id": "templater-obsidian",
+      "version": "2.25.1"
+    }
+  ],
+  "themes": [
+    {
+      "name": "AnuPpuccin",
+      "version": "1.5.0"
+    },
+    {
+      "name": "Catppuccin",
+      "version": "0.4.50"
+    },
+    {
+      "name": "Cupertino",
+      "version": "4.0.0"
+    },
+    {
+      "name": "Minimal",
+      "version": "9.1.4"
+    },
+    {
+      "name": "Things",
+      "version": "2.2.4"
+    }
+  ]
+}

@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""
+vault-validate
+Validação somente leitura do vault: estrutura, metadados, links, segredos e vaults compartilhados montados.
+Verifies structure, metadata, properties, internal links, and secrets scan.
+"""
+
+import os
+import sys
+import re
+import json
+import subprocess
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import vaultcfg  # noqa: E402
+
+def _resolve_vault_dir():
+    return str(vaultcfg.vault_dir())
+
+VAULT_DIR = None  # resolvido em main()
+
+EXPECTED_DIRS = list(vaultcfg.DEFAULTS["expected_dirs"])
+
+# Vaults compartilhados montados como subpasta (repo git próprio, ignorado pelo .gitignore).
+# Regras de caminho valem relativas à raiz do mount.
+SHARED_MOUNTS = []  # preenchido por configure() a partir de .vault/config.json
+ALLOWED_ROOT = set(vaultcfg.DEFAULTS["allowed_root_entries"])
+CFG = {}
+
+def configure(vault_dir):
+    global EXPECTED_DIRS, SHARED_MOUNTS, ALLOWED_ROOT, CFG
+    cfg = vaultcfg.load(vault_dir)
+    CFG = cfg
+    EXPECTED_DIRS = list(cfg["expected_dirs"])
+    SHARED_MOUNTS = vaultcfg.shared_mount_paths(cfg)
+    ALLOWED_ROOT = set(cfg["allowed_root_entries"])
+
+
+def _rule_path(rel_path):
+    for m in SHARED_MOUNTS:
+        if rel_path.startswith(m + "/"):
+            return rel_path[len(m) + 1:]
+    return rel_path
+
+VALID_ENVIRONMENTS = {"production", "homologation", "testing", "development", "local"}
+
+def parse_frontmatter(file_path):
+    """Simple robust YAML frontmatter parser without requiring external PyYAML."""
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+    
+    if not content.startswith("---"):
+        return None, content
+    
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return None, content
+    
+    raw_yaml = parts[1]
+    body = parts[2]
+    props = {}
+    for line in raw_yaml.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" in line:
+            key, val = line.split(":", 1)
+            key = key.strip()
+            val = val.strip().strip("'\"")
+            props[key] = val
+    return props, body
+
+def check_structure(vault_dir):
+    errors = []
+    for d in EXPECTED_DIRS:
+        dp = os.path.join(vault_dir, d)
+        if not os.path.isdir(dp):
+            errors.append(f"Missing expected directory: {d}")
+    
+    # Check for stray files at root other than allowed dotfiles or standard markdown
+    allowed_root = ALLOWED_ROOT
+    for item in os.listdir(vault_dir):
+        if item in allowed_root or item in SHARED_MOUNTS:
+            continue
+        if item.startswith(".") and subprocess.run(["git", "-C", str(vault_dir), "check-ignore", "-q", item],
+                                                  capture_output=True).returncode == 0:
+            continue  # artefato local ignorado pelo git (IDE, cache)
+        ip = os.path.join(vault_dir, item)
+        if os.path.isdir(ip):
+            if item not in [d.split("/")[0] for d in EXPECTED_DIRS]:
+                errors.append(f"Unexpected top-level directory: {item}")
+        elif os.path.isfile(ip):
+            if not item.endswith((".md", ".base", ".canvas")):
+                errors.append(f"Unexpected top-level file: {item}")
+            elif item.startswith(("Sem título", "Untitled")):
+                errors.append(f"Untitled temporary file at root: {item}. Please name it meaningfully.")
+
+    # Check that Obsidian settings ignore runtime vendor directories
+    app_json_path = os.path.join(vault_dir, ".obsidian", "app.json")
+    if os.path.isfile(app_json_path):
+        try:
+            with open(app_json_path, "r", encoding="utf-8") as f:
+                app_data = json.load(f)
+            filters = app_data.get("userIgnoreFilters", [])
+            if not any("node_modules" in filt for filt in filters):
+                errors.append(".obsidian/app.json must include 'node_modules' in userIgnoreFilters to prevent vendor markdown pollution in Graph View.")
+        except Exception:
+            pass
+
+    return errors
+
+def check_files(vault_dir):
+    prop_errors = []
+    change_errors = []
+    server_errors = []
+    secret_errors = []
+    
+    all_files = []
+    known_notes = set()
+    
+    secret_patterns = [
+        re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
+        re.compile(r"(?i)(?:password|senha|secret|api_key)\s*[:=]\s*['\"](?!(?:\[REDACTED\]|<[^>]+>|dummy|changeme|teste|123|default|))([a-zA-Z0-9_\-\.\$]{12,})['\"]"),
+        re.compile(r"ghp_[a-zA-Z0-9]{36}"),
+        re.compile(r"glpat-[a-zA-Z0-9\-_]{20,}"),
+        re.compile(r"AKIA[0-9A-Z]{16}")
+    ]
+
+    for root, dirs, files in os.walk(vault_dir):
+        # Ignore hidden directories (.git, .obsidian, .venv, etc.) and node_modules
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
+            
+        for file in files:
+            if not file.endswith(".md"):
+                # Anexos (imagens, PDFs, canvas) são alvos válidos de [[...]] pelo nome com extensão
+                known_notes.add(file)
+                known_notes.add(os.path.relpath(os.path.join(root, file), vault_dir))
+                continue
+            if file.endswith(".md"):
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, vault_dir)
+                all_files.append((rel_path, full_path))
+                
+                # Note names for link checking
+                base_name = os.path.splitext(file)[0]
+                known_notes.add(base_name)
+                known_notes.add(rel_path)
+                known_notes.add(os.path.splitext(rel_path)[0])
+                # Directory names can also be valid link targets
+                dir_name = os.path.dirname(rel_path)
+                if dir_name:
+                    known_notes.add(dir_name)
+                    known_notes.add(dir_name + "/")
+
+    for rel_path, full_path in all_files:
+        rule_path = _rule_path(rel_path)
+        is_template = rule_path.startswith("99 - Templates/")
+        props, body = parse_frontmatter(full_path)
+        
+        # Secret scan (run on all files including templates)
+        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+            full_content = f.read()
+            for pat in secret_patterns:
+                match = pat.search(full_content)
+                if match:
+                    secret_errors.append(f"{rel_path}: Potentially exposed secret detected: {match.group(0)[:15]}...")
+
+        is_excalidraw = rel_path.endswith(".excalidraw.md") or (props and "excalidraw-plugin" in props)
+        is_raw_source = rule_path.startswith("90 - Files/Sources/")
+        is_agent_contract = rule_path in {"CLAUDE.md", "GEMINI.md", "AGENTS.md", "README.md"}
+        if is_template or is_excalidraw or is_raw_source or is_agent_contract:
+            # Skip property content checks for template, Excalidraw, raw sources, and root agent contracts
+            continue
+            
+        if props is None:
+            prop_errors.append(f"{rel_path}: Missing YAML frontmatter")
+            continue
+            
+        if "type" not in props or not props["type"]:
+            prop_errors.append(f"{rel_path}: Missing 'type' property in frontmatter")
+
+        # Change metadata check
+        if rule_path.startswith("08 - Changes/"):
+            if "id" not in props or not props["id"]:
+                change_errors.append(f"{rel_path}: Change missing 'id'")
+            if "date" not in props or not props["date"]:
+                change_errors.append(f"{rel_path}: Change missing 'date'")
+            if "status" not in props or not props["status"]:
+                change_errors.append(f"{rel_path}: Change missing 'status'")
+            if not ("server" in props or "project" in props or "service" in props):
+                change_errors.append(f"{rel_path}: Change missing 'server', 'project' or 'service'")
+
+        # Server metadata check
+        if rule_path.startswith("04 - Servers/"):
+            if props.get("type") != "server":
+                server_errors.append(f"{rel_path}: type must be 'server', got '{props.get('type')}'")
+            env = props.get("environment")
+            if not env:
+                server_errors.append(f"{rel_path}: Server missing 'environment'")
+            elif env not in VALID_ENVIRONMENTS:
+                server_errors.append(f"{rel_path}: Invalid environment '{env}', expected one of {VALID_ENVIRONMENTS}")
+
+    # Check internal links
+    link_errors = []
+    link_pattern = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
+    code_block_pattern = re.compile(r"```[\s\S]*?```")
+    inline_code_pattern = re.compile(r"`[^`\n]+`")
+
+    for rel_path, full_path in all_files:
+        if _rule_path(rel_path).startswith("99 - Templates/"):
+            continue
+        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+
+        # Remove fenced code blocks and inline code spans to avoid false positives on syntax examples
+        content_no_code = code_block_pattern.sub("", content)
+        content_no_code = inline_code_pattern.sub("", content_no_code)
+
+        for match in link_pattern.finditer(content_no_code):
+            target = match.group(1).strip()
+            # Ignore template placeholders like {{...}} or placeholders like CHG-... or INC-...
+            if target.startswith("{{") or target.startswith("CHG-...") or target.startswith("INC-...") or target.startswith("ADR-..."):
+                continue
+            if target not in known_notes:
+                # check if file exists directly relative or with .md
+                p1 = os.path.join(vault_dir, target)
+                p2 = os.path.join(vault_dir, target + ".md")
+                if not (os.path.exists(p1) or os.path.exists(p2)):
+                    link_errors.append(f"{rel_path}: Broken internal link -> [[{target}]]")
+
+    return prop_errors, change_errors, server_errors, link_errors, secret_errors
+
+def check_shared_mounts(vault_dir):
+    """Vault compartilhado montado: roda o validador do time e o guard contra vazamento
+    de conteúdo pessoal. Falha aqui bloqueia commit e encerramento do vault pessoal."""
+    errors = []
+    guard = Path(__file__).resolve().parent / "shared-vault-guard"
+    for m in SHARED_MOUNTS:
+        shared = Path(vault_dir) / m
+        if not shared.is_dir():
+            continue
+        if (shared / ".vault" / "config.json").is_file():
+            env_m = os.environ.copy()
+            env_m["OBSIDIAN_VAULT_PATH"] = str(shared)
+            res = subprocess.run([sys.executable, str(Path(__file__).resolve()), str(shared)], capture_output=True, text=True, env=env_m)
+            if res.returncode != 0:
+                errors.append(f"{m}: vault-validate do mount falhou:")
+                errors += [f"    {l}" for l in res.stdout.splitlines() if l.strip().startswith(("-", "✗"))]
+        if guard.is_file():
+            env = os.environ.copy()
+            env["OBSIDIAN_VAULT_PATH"] = str(vault_dir)
+            res = subprocess.run([sys.executable, str(guard), str(shared)], capture_output=True, text=True, env=env)
+            if res.returncode != 0:
+                errors += [f"    {l}" for l in res.stdout.splitlines() if l.strip()]
+    return errors
+
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+EMAIL_ALLOWED = re.compile(r"^git@|@(?:example\.(?:com|org|net)|exemplo\.com|dominio\.com)$", re.I)
+PHONE_RE = re.compile(r"\(?\b\d{2}\)?\s?9?\d{4}-\d{4}\b")
+HOME_PATH_RE = re.compile(r"(?:/home/[a-z_][\w.-]*|/Users/[A-Za-z][\w.-]*|C:\\Users\\)")
+PW_LINE_RE = re.compile(r"(?i)\b(?:senha|password|passwd|pwd)\b")
+CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
+WEAK_PW_RE = re.compile(r"(?i)^(?:senha|password|pass|admin|root|teste?)[@#!_.-]?\d+$|^\d{3,}$")
+SAFE_SPAN_RE = re.compile(r"^(?:\[REDACTED\]|<[^>]+>|\$\{?[A-Z_][A-Z0-9_]*\}?)$")
+
+def check_privacy(vault_dir):
+    """Bloqueia dados que não podem estar num vault de time:
+    consultas Dataview sem escopo (leem o vault hospedeiro quando montado como subpasta),
+    DataviewJS, e-mails e telefones reais, caminhos de home e senhas literais."""
+    errors = []
+    for root, dirs, files in os.walk(vault_dir):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
+        for file in files:
+            if not file.endswith((".md", ".canvas", ".base")):
+                continue
+            full = os.path.join(root, file)
+            rel = os.path.relpath(full, vault_dir)
+            with open(full, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            # Dataview: só DQL com escopo relativo a this.file.folder
+            if re.search(r"```dataviewjs|`\$=", content):
+                errors.append(f"{rel}: DataviewJS é proibido (lê qualquer nota do vault hospedeiro)")
+            if re.search(r"`=\s", content):
+                errors.append(f"{rel}: consulta Dataview inline é proibida (sem escopo)")
+            for block in re.findall(r"```dataview\n([\s\S]*?)```", content):
+                if re.search(r'(?i)\bFROM\s+(?:"[^"]+"|#|\[\[)', block):
+                    errors.append(f"{rel}: Dataview com FROM de pasta, tag ou link. Use FROM \"\" + WHERE com this.file.folder")
+                if "this.file.folder" not in block:
+                    errors.append(f"{rel}: Dataview sem escopo this.file.folder (leria o vault hospedeiro)")
+
+            for n, line in enumerate(content.splitlines(), 1):
+                for m in EMAIL_RE.finditer(line):
+                    if not EMAIL_ALLOWED.search(m.group(0)):
+                        errors.append(f"{rel}:{n}: e-mail real ({m.group(0)[:3]}...). Use papel/perfil ou usuario@example.com")
+                if PHONE_RE.search(line):
+                    errors.append(f"{rel}:{n}: número de telefone")
+                if HOME_PATH_RE.search(line):
+                    errors.append(f"{rel}:{n}: caminho de home pessoal. Use $SEBITO_REPOS ou ~/")
+                if PW_LINE_RE.search(line):
+                    for span in CODE_SPAN_RE.findall(line):
+                        s = span.strip()
+                        if SAFE_SPAN_RE.match(s) or "/" in s or s.startswith((".", "~")) or EMAIL_ALLOWED.search(s):
+                            continue
+                        assigned = re.search(r"(?i)(?:senha|password|passwd|pwd)\W{0,3}[:=]\s*`" + re.escape(span) + "`", line)
+                        looks_secret = re.search(r"\d", s) and " " not in s and len(s) <= 64
+                        if WEAK_PW_RE.match(s) or assigned or looks_secret:
+                            errors.append(f"{rel}:{n}: possível senha literal em linha que fala de senha. Use [REDACTED]")
+    return errors
+
+def check_agent_imports(vault_dir):
+    """Vault que mantém o próprio AGENTS.md: CLAUDE.md e GEMINI.md precisam importá-lo."""
+    errors = []
+    if not os.path.isfile(os.path.join(vault_dir, "AGENTS.md")):
+        return ["AGENTS.md ausente na raiz"]
+    for name in ("CLAUDE.md", "GEMINI.md"):
+        p = os.path.join(vault_dir, name)
+        if not os.path.isfile(p):
+            errors.append(f"{name} ausente na raiz")
+        elif "@AGENTS.md" not in open(p, encoding="utf-8").read():
+            errors.append(f"{name} precisa importar @AGENTS.md")
+    return errors
+
+
+def check_agent_sync(vault_dir):
+    """Verifies that vault root agent instruction files (CLAUDE.md, GEMINI.md, AGENTS.md)
+    exist and are synchronized with Shared Agent Policy.md."""
+    sync_agents_bin = Path(__file__).resolve().parent / "sync-agents"
+    if not sync_agents_bin.is_file():
+        return [f"sync-agents script not found at {sync_agents_bin}"]
+    
+    env = os.environ.copy()
+    env["OBSIDIAN_VAULT_PATH"] = str(vault_dir)
+    res = subprocess.run([sys.executable, str(sync_agents_bin), "--check-vault-only"], env=env, capture_output=True, text=True)
+    if res.returncode != 0:
+        msg = res.stdout.strip() or res.stderr.strip()
+        lines = [line.strip() for line in msg.splitlines() if line.strip()]
+        return ["Agent instruction files desynchronized with Shared Agent Policy.md:"] + [f"    {l}" for l in lines] + ["    👉 Fix by running: vault sync-agents"]
+    return []
+
+def main():
+    vault_dir = sys.argv[1] if len(sys.argv) > 1 else _resolve_vault_dir()
+    configure(vault_dir)
+    print("Obsidian Vault Validation")
+    print(f"Target: {vault_dir}\n")
+
+    if not os.path.isdir(vault_dir):
+        print(f"FAIL: Vault directory does not exist: {vault_dir}")
+        sys.exit(1)
+
+    all_passed = True
+
+    # 1. Structure
+    struct_errs = check_structure(vault_dir)
+    if not struct_errs:
+        print("✓ Structure")
+    else:
+        print("✗ Structure")
+        for e in struct_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    # 2-6. Content Checks
+    prop_errs, chg_errs, srv_errs, link_errs, sec_errs = check_files(vault_dir)
+
+    if not prop_errs:
+        print("✓ Required properties")
+    else:
+        print("✗ Required properties")
+        for e in prop_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    if not chg_errs:
+        print("✓ Change metadata")
+    else:
+        print("✗ Change metadata")
+        for e in chg_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    if not srv_errs:
+        print("✓ Server metadata")
+    else:
+        print("✗ Server metadata")
+        for e in srv_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    if not link_errs:
+        print("✓ Internal links")
+    else:
+        print("✗ Internal links")
+        for e in link_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    if not sec_errs:
+        print("✓ Secret scan")
+    else:
+        print("✗ Secret scan")
+        for e in sec_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    # 6a. Privacidade (vaults de time)
+    if CFG.get("privacy_checks"):
+        priv_errs = check_privacy(vault_dir)
+        if not priv_errs:
+            print("✓ Privacy scan")
+        else:
+            print("✗ Privacy scan")
+            for e in priv_errs:
+                print(f"  - {e}")
+            all_passed = False
+
+    # 6b. Shared vault mounts (privacidade e vazamento do vault pessoal)
+    mount_errs = check_shared_mounts(vault_dir)
+    if not mount_errs:
+        print("✓ Shared vault mounts")
+    else:
+        print("✗ Shared vault mounts")
+        for e in mount_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    # 7. Agent instructions synchronization
+    agent_sync_errs = check_agent_sync(vault_dir) if CFG.get("generate_agent_files", True) else check_agent_imports(vault_dir)
+    if not agent_sync_errs:
+        print("✓ Agent instructions sync")
+    else:
+        print("✗ Agent instructions sync")
+        for e in agent_sync_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    print()
+    if all_passed:
+        print("PASS")
+        sys.exit(0)
+    else:
+        print("FAIL")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

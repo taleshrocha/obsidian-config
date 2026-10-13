@@ -1,0 +1,25 @@
+{
+  "name": "list_notes",
+  "description": "List notes in the vault filtered by type (server, project, change, procedure, repository, application) or organization (as definidas em 01 - Organizations).",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "type": {
+        "type": "string",
+        "description": "Filter by note frontmatter type (e.g. 'server', 'project', 'change', 'procedure')."
+      },
+      "organization": {
+        "type": "string",
+        "description": "Filter by organization (nome da nota em 01 - Organizations ou 'Cross-Organization')."
+      },
+      "folder": {
+        "type": "string",
+        "description": "Filter by vault folder prefix (e.g. '08 - Changes/2026')."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Max results (default: 25)."
+      }
+    }
+  }
+}

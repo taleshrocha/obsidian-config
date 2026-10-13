@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+"""
+sync-agents: sincroniza instruções, skills e MCP entre agentes de IA.
+
+Gera ~/.claude/CLAUDE.md, ~/.gemini/GEMINI.md, ~/.codex/AGENTS.md e os arquivos
+CLAUDE.md, GEMINI.md e AGENTS.md na raiz do vault a partir de:
+  - agents/base-instructions.md (público, neste repositório)
+  - nota de regras privadas do vault (config: agent_rules_note)
+  - checksum da política do vault (config: policy_note)
+
+Também registra o MCP obsidian-vault (mcp-server/index.js deste repositório) em
+Claude Code, Gemini CLI e Codex, preservando os outros servidores já configurados.
+"""
+
+import os
+import sys
+import json
+import shutil
+import re
+import hashlib
+import argparse
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "lib"))
+import vaultcfg  # noqa: E402
+
+CFG = vaultcfg.load()
+VAULT_DIR = Path(CFG["vault_dir"])
+POLICY_FILE = VAULT_DIR / CFG["policy_note"]
+RULES_FILE = VAULT_DIR / CFG["agent_rules_note"]
+BASE_TEMPLATE = REPO / "agents" / "base-instructions.md"
+MCP_SERVER = REPO / "mcp-server" / "index.js"
+SKILLS_DIR = REPO / "skills"
+
+HOME = Path.home()
+
+# ANSI Colors
+CYAN = "\033[96m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+RED = "\033[91m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+
+KNOWN_POLICY_TOPICS = list(CFG.get("policy_topics", []))
+
+def get_policy_checksum() -> str:
+    """Computes SHA-256 of the canonical Shared Agent Policy."""
+    h = hashlib.sha256()
+    for f in (REPO / "agents" / "policy.md", BASE_TEMPLATE, POLICY_FILE, RULES_FILE):
+        h.update(f.read_bytes() if f.is_file() else b"MISSING")
+    return h.hexdigest()
+
+def check_policy_coverage() -> list[str]:
+    """Ensures all major sections in Shared Agent Policy are recognized in sync-agents."""
+    if not KNOWN_POLICY_TOPICS:
+        return []
+    if not POLICY_FILE.is_file():
+        return ["Policy file not found: " + str(POLICY_FILE)]
+    content = POLICY_FILE.read_text(encoding="utf-8")
+    headings = re.findall(r"^##\s+(.+)$", content, re.MULTILINE)
+    unrecognized = []
+    for h in headings:
+        h_clean = h.strip()
+        matched = any(topic.lower() in h_clean.lower() for topic in KNOWN_POLICY_TOPICS)
+        if not matched:
+            unrecognized.append(h_clean)
+    return unrecognized
+
+def strip_frontmatter(text: str) -> str:
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) == 3:
+            return parts[2].strip() + "\n"
+    return text.strip() + "\n"
+
+
+def private_rules() -> str:
+    """Regras privadas do vault, sem frontmatter."""
+    if not RULES_FILE.is_file():
+        return ""
+    text = RULES_FILE.read_text(encoding="utf-8")
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        text = parts[2] if len(parts) == 3 else text
+    lines = [l for l in text.strip().splitlines() if not l.startswith("# ")]
+    return "\n".join(lines).strip() + "\n"
+
+
+def local_policy_line() -> str:
+    """Política local: a nota do vault ou, em vault de time, o AGENTS.md dele."""
+    if POLICY_FILE.is_file():
+        return f"Local Policy (overrides the base on conflict): `@{POLICY_FILE}`"
+    if not CFG.get("generate_agent_files", True) and (VAULT_DIR / "AGENTS.md").is_file():
+        return f"Local Policy (team vault contract, overrides the base on conflict): `@{VAULT_DIR / 'AGENTS.md'}`"
+    return "Local Policy: none (create the note configured in `policy_note` for vault-specific rules)."
+
+
+def get_base_agent_instructions(agent_name: str, policy_hash: str = None) -> str:
+    """Monta as instruções globais: base pública + regras privadas do vault."""
+    if policy_hash is None:
+        policy_hash = get_policy_checksum()
+    orgs = vaultcfg.organizations(CFG)
+    text = BASE_TEMPLATE.read_text(encoding="utf-8")
+    for key, val in {
+        "POLICY_HASH": policy_hash,
+        "AGENT_NAME": agent_name,
+        "VAULT_DIR": str(VAULT_DIR),
+        "POLICY_NOTE": CFG["policy_note"],
+        "LOCAL_POLICY": local_policy_line(),
+        "ORGANIZATIONS": ", ".join(orgs) if orgs else "todas as organizações do vault",
+        "PRIVATE_RULES": private_rules(),
+        "CONFIG_DIR": str(REPO),
+    }.items():
+        text = text.replace("{{" + key + "}}", val)
+    text = text.replace("{{VAULT_DIR}}", str(VAULT_DIR))
+    if agent_name == "Codex":
+        # Codex não resolve @imports: as políticas vão embutidas no arquivo.
+        text = text.rstrip() + "\n\n---\n\n" + strip_frontmatter((REPO / "agents" / "policy.md").read_text(encoding="utf-8"))
+        local = POLICY_FILE if POLICY_FILE.is_file() else (
+            VAULT_DIR / "AGENTS.md" if not CFG.get("generate_agent_files", True) else None)
+        if local and local.is_file():
+            text = text.rstrip() + "\n\n---\n\n" + strip_frontmatter(local.read_text(encoding="utf-8"))
+    return text
+
+def get_sync_targets(vault_only=False):
+    """Returns list of (Path, AgentName) targets."""
+    targets = [
+        (VAULT_DIR / "CLAUDE.md", "Claude Code"),
+        (VAULT_DIR / "GEMINI.md", "Gemini CLI / Antigravity assistant"),
+        (VAULT_DIR / "AGENTS.md", "Codex"),
+    ] if CFG.get("generate_agent_files", True) else []
+    if not vault_only:
+        targets = [
+            (HOME / ".gemini/GEMINI.md", "Gemini CLI / Antigravity assistant"),
+            (HOME / ".gemini/config/GEMINI.md", "Gemini CLI / Antigravity assistant"),
+            (HOME / ".claude/CLAUDE.md", "Claude Code"),
+            (HOME / ".codex/AGENTS.md", "Codex"),
+        ] + targets
+    return targets
+
+BLOCK_BEGIN = "<!-- obsidian-config:begin -->"
+BLOCK_END = "<!-- obsidian-config:end -->"
+LEGACY_HEAD = "<!-- Canonical-Policy-SHA256:"
+
+
+def vault_root_targets():
+    return {VAULT_DIR / "CLAUDE.md", VAULT_DIR / "GEMINI.md", VAULT_DIR / "AGENTS.md"}
+
+
+def render_target(path, generated):
+    """Arquivos da raiz do vault são inteiros gerados. Arquivos globais recebem um bloco
+    gerenciado entre marcadores; o que o usuário escreveu fora do bloco é preservado."""
+    if path in vault_root_targets():
+        return generated
+    block = f"{BLOCK_BEGIN}\n{generated.rstrip()}\n{BLOCK_END}\n"
+    current = path.read_text(encoding="utf-8") if path.is_file() else ""
+    if BLOCK_BEGIN in current and BLOCK_END in current:
+        head, rest = current.split(BLOCK_BEGIN, 1)
+        tail = rest.split(BLOCK_END, 1)[1].lstrip("\n")
+        return head + block + (("\n" + tail) if tail else "")
+    if not current.strip() or current.startswith(LEGACY_HEAD):
+        return block  # arquivo vazio ou gerado inteiro por versão antiga
+    return current.rstrip() + "\n\n" + block
+
+
+def check_sync(vault_only=False) -> tuple[bool, list[str]]:
+    """Checks whether agent instruction files match generated content and policy checksum."""
+    policy_hash = get_policy_checksum()
+    errors = []
+    targets = get_sync_targets(vault_only=vault_only)
+
+    for target_path, agent_name in targets:
+        if not target_path.exists():
+            errors.append(f"Missing file: {target_path}")
+            continue
+        expected = render_target(target_path, get_base_agent_instructions(agent_name, policy_hash))
+        actual = target_path.read_text(encoding="utf-8")
+        if actual != expected:
+            errors.append(f"Content or checksum drifted: {target_path}")
+
+    return (len(errors) == 0, errors)
+
+def sync_instruction_files(quiet=False, vault_only=False):
+    """Generates and writes synchronized instruction files across all agent config paths."""
+    if not quiet:
+        print(f"{BOLD}{CYAN}📝 [1/3] Synchronizing Agent Instruction Files...{RESET}")
+    targets = get_sync_targets(vault_only=vault_only)
+    policy_hash = get_policy_checksum()
+
+    # Verify policy heading coverage
+    unrecognized = check_policy_coverage()
+    if unrecognized and not quiet:
+        print(f"  {YELLOW}⚠ Warning: Found unmapped sections in Shared Agent Policy.md:{RESET}")
+        for u in unrecognized:
+            print(f"    - {u}")
+
+    for target_path, agent_name in targets:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        # If it's a symlink that points to another target, keep or recreate cleanly
+        if target_path.is_symlink():
+            try:
+                resolved = target_path.resolve()
+                if resolved.exists():
+                    target_path.unlink()
+            except Exception:
+                pass
+
+        content = render_target(target_path, get_base_agent_instructions(agent_name, policy_hash))
+        target_path.write_text(content, encoding="utf-8")
+        if not quiet:
+            rel = target_path.relative_to(HOME) if str(target_path).startswith(str(HOME)) else target_path
+            print(f"  {GREEN}✓{RESET} Synced: ~/{rel}")
+
+def sync_skills(quiet=False):
+    """Synchronizes common skills across Gemini, Claude, and Codex skill directories."""
+    if not quiet:
+        print(f"\n{BOLD}{CYAN}🧠 [2/3] Synchronizing Skills Across Agents...{RESET}")
+    gemini_skills_dir = HOME / ".gemini/config/skills"
+    claude_skills_dir = HOME / ".claude/skills"
+    codex_skills_dir = HOME / ".codex/skills"
+    vault_skills_dir = SKILLS_DIR
+
+    claude_skills_dir.mkdir(parents=True, exist_ok=True)
+    codex_skills_dir.mkdir(parents=True, exist_ok=True)
+    gemini_skills_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Skills deste repositório para os diretórios dos agentes
+    if vault_skills_dir.is_dir():
+        for vault_skill in vault_skills_dir.iterdir():
+            if vault_skill.is_dir():
+                for dest in [gemini_skills_dir, claude_skills_dir, codex_skills_dir]:
+                    dest_skill = dest / vault_skill.name
+                    if dest_skill.is_symlink() or (dest_skill.exists() and dest_skill.resolve() == vault_skill.resolve()):
+                        continue
+                    dest_skill.mkdir(parents=True, exist_ok=True)
+                    src_file = vault_skill / "SKILL.md"
+                    if src_file.is_file():
+                        shutil.copy2(src_file, dest_skill / "SKILL.md")
+
+    # 2. Replicate all skills from ~/.gemini/config/skills to Claude and Codex
+    skills_to_sync = [d for d in gemini_skills_dir.iterdir() if d.is_dir()]
+    synced_count = 0
+
+    for skill_dir in skills_to_sync:
+        skill_name = skill_dir.name
+        # Target destinations
+        for dest_base in [claude_skills_dir, codex_skills_dir]:
+            dest_dir = dest_base / skill_name
+            if dest_dir.is_symlink() or (dest_dir.exists() and dest_dir.resolve() == skill_dir.resolve()):
+                continue
+            if not dest_dir.exists():
+                shutil.copytree(skill_dir, dest_dir)
+            else:
+                # Update SKILL.md if newer
+                src_skill_file = skill_dir / "SKILL.md"
+                dest_skill_file = dest_dir / "SKILL.md"
+                if src_skill_file.is_file():
+                    try:
+                        shutil.copy2(src_skill_file, dest_skill_file)
+                    except shutil.SameFileError:
+                        pass
+        synced_count += 1
+
+    if not quiet:
+        print(f"  {GREEN}✓{RESET} Replicated {BOLD}{synced_count}{RESET} skills to:")
+        print(f"    • ~/.claude/skills/ ({len(list(claude_skills_dir.iterdir()))} skills)")
+        print(f"    • ~/.codex/skills/ ({len(list(codex_skills_dir.iterdir()))} skills)")
+        print(f"    • ~/.gemini/config/skills/ ({len(list(gemini_skills_dir.iterdir()))} skills)")
+
+def mcp_servers():
+    """(nome, caminho do vault) para o vault principal e cada vault montado."""
+    servers = [(CFG.get("mcp_name", "obsidian-vault"), VAULT_DIR)]
+    for m in CFG.get("shared_mounts", []):
+        path = VAULT_DIR / (m["path"] if isinstance(m, dict) else m)
+        if not (path / ".vault" / "config.json").is_file():
+            continue
+        name = vaultcfg.load(path).get("mcp_name") or vaultcfg.slugify(path.name)
+        servers.append((name, path))
+    return servers
+
+
+def sync_mcp_configs(quiet=False):
+    """Registra o MCP de cada vault em Claude Code, Codex e Gemini, preservando outros servidores."""
+    if not quiet:
+        print(f"\n{BOLD}{CYAN}[3/3] Validando configurações MCP...{RESET}")
+    server_script = str(MCP_SERVER)
+    servers = mcp_servers()
+
+    def entry(vault):
+        return {"command": "node", "args": [server_script], "env": {"OBSIDIAN_VAULT_PATH": str(vault)}}
+
+    claude_json_path = HOME / ".claude.json"
+    if claude_json_path.is_file():
+        try:
+            data = json.loads(claude_json_path.read_text("utf-8"))
+            for name, vault in servers:
+                data.setdefault("mcpServers", {})[name] = {"type": "stdio", **entry(vault)}
+            claude_json_path.write_text(json.dumps(data, indent=2), "utf-8")
+            if not quiet:
+                print(f"  {GREEN}✓{RESET} Claude: {', '.join(n for n, _ in servers)}")
+        except Exception as e:  # noqa: BLE001
+            if not quiet:
+                print(f"  {YELLOW}⚠{RESET} Claude MCP: {e}")
+
+    codex_toml_path = HOME / ".codex/config.toml"
+    if codex_toml_path.is_file():
+        try:
+            toml = codex_toml_path.read_text("utf-8")
+            for name, vault in servers:
+                esc = re.escape(name)
+                toml = re.sub(r"\n?\[mcp_servers\." + esc + r"\][\s\S]*?(?=\n\[(?!mcp_servers\." + esc + r"[\].])|\Z)", "", toml)
+                script = server_script.replace("\\", "/")
+                vpath = str(vault).replace("\\", "/")
+                toml += f'\n[mcp_servers.{name}]\ncommand = "node"\nargs = ["{script}"]\n\n[mcp_servers.{name}.env]\nOBSIDIAN_VAULT_PATH = "{vpath}"\n'
+            codex_toml_path.write_text(toml, "utf-8")
+            if not quiet:
+                print(f"  {GREEN}✓{RESET} Codex: {', '.join(n for n, _ in servers)}")
+        except Exception as e:  # noqa: BLE001
+            if not quiet:
+                print(f"  {YELLOW}⚠{RESET} Codex MCP: {e}")
+
+    for p in [HOME / ".gemini/config/mcp_config.json", HOME / ".gemini/antigravity/mcp_config.json",
+              HOME / ".gemini/antigravity-cli/mcp_config.json"]:
+        if not p.parent.is_dir():
+            continue
+        try:
+            cfg = json.loads(p.read_text("utf-8")) if p.is_file() else {}
+        except ValueError:
+            cfg = {}
+        for name, vault in servers:
+            cfg.setdefault("mcpServers", {})[name] = entry(vault)
+        p.write_text(json.dumps(cfg, indent=2), "utf-8")
+        if not quiet:
+            print(f"  {GREEN}✓{RESET} Gemini: {p}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Universal Agent Synchronization Engine")
+    parser.add_argument("--check", action="store_true", help="Check if all agent instruction files are in sync without writing")
+    parser.add_argument("--check-vault-only", action="store_true", help="Check only vault root agent instruction files (CLAUDE.md, GEMINI.md, AGENTS.md)")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Run quietly (suppress normal output)")
+    parser.add_argument("--vault-only", action="store_true", help="Gera só CLAUDE.md, GEMINI.md e AGENTS.md na raiz do vault")
+    args = parser.parse_args()
+
+    if args.check_vault_only and not CFG.get("generate_agent_files", True):
+        sys.exit(0)
+    if args.check or args.check_vault_only:
+        ok, errs = check_sync(vault_only=args.check_vault_only)
+        if not ok:
+            if not args.quiet:
+                scope = "Vault root" if args.check_vault_only else "All"
+                print(f"{RED}❌ {scope} agent instructions desynchronized with Shared Agent Policy.md:{RESET}")
+                for e in errs:
+                    print(f"  ✗ {e}")
+            sys.exit(1)
+        if not args.quiet:
+            scope = "Vault root" if args.check_vault_only else "All"
+            print(f"{GREEN}✓ {scope} agent instructions are in sync with Shared Agent Policy.md.{RESET}")
+        sys.exit(0)
+
+    if not args.quiet:
+        print(f"{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{RESET}")
+        print(f"{BOLD}{CYAN}║         Universal AI Agent Synchronization Engine                 ║{RESET}")
+        print(f"{BOLD}{CYAN}║            (Gemini CLI · Claude Code · OpenAI Codex)              ║{RESET}")
+        print(f"{BOLD}{CYAN}╚═══════════════════════════════════════════════════════════════════╝{RESET}")
+        print(f"  {DIM}Vault:{RESET} {VAULT_DIR}\n")
+
+    if args.vault_only:
+        if CFG.get("generate_agent_files", True):
+            sync_instruction_files(quiet=args.quiet, vault_only=True)
+        return
+    sync_instruction_files(quiet=args.quiet)
+    sync_skills(quiet=args.quiet)
+    sync_mcp_configs(quiet=args.quiet)
+
+    if not args.quiet:
+        print(f"\n{GREEN}{BOLD}🎉 All 3 AI agents (Gemini, Claude, Codex) are 100% synchronized!{RESET}\n")
+
+if __name__ == "__main__":
+    main()

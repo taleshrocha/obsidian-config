@@ -1,0 +1,4 @@
+#!/bin/sh
+# Hooks do próprio obsidian-config: barreira de privacidade antes de cada commit.
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+exec sh "$DIR/lib/runpy.sh" "$DIR/tools/privacy_gate.py"

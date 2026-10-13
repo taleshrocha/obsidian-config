@@ -1,0 +1,16 @@
+{
+  "name": "get_backlinks",
+  "description": "Find all notes in the vault that link to a specific note via [[wikilinks]].",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "note_name": {
+        "type": "string",
+        "description": "Name of the note to find incoming links for."
+      }
+    },
+    "required": [
+      "note_name"
+    ]
+  }
+}

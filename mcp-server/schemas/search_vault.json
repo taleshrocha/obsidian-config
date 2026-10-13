@@ -1,0 +1,24 @@
+{
+  "name": "search_vault",
+  "description": "Search notes across the Obsidian Work Vault by keyword or phrase. Returns matching note names, relative paths and relevant snippet lines.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Keyword or phrase to search for."
+      },
+      "folder": {
+        "type": "string",
+        "description": "Optional folder prefix to narrow search (e.g. '04 - Servers', '10 - Procedures')."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of results to return (default: 10)."
+      }
+    },
+    "required": [
+      "query"
+    ]
+  }
+}

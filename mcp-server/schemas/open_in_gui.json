@@ -1,0 +1,16 @@
+{
+  "name": "open_in_gui",
+  "description": "Open a note in the active Obsidian desktop GUI window using obsidian-cli.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Relative path or note name to open in the Obsidian desktop application."
+      }
+    },
+    "required": [
+      "path"
+    ]
+  }
+}

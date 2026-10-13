@@ -1,0 +1,13 @@
+{
+  "vault_name": "Work",
+  "organizations": [],
+  "projects_dir": "~/Projects",
+  "shared_mounts": [],
+  "policy_note": "07 - Infrastructure/AI/Shared Agent Policy.md",
+  "agent_rules_note": "07 - Infrastructure/AI/Agent Rules.md",
+  "policy_topics": [],
+  "git": {"remote": "origin", "branch": "main", "auto_push": true},
+  "git_https_auth": [],
+  "default_change_server": "",
+  "guard": {"allow": [], "common_org_words": []}
+}

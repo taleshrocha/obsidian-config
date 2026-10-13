@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""
+shared-vault-guard
+Impede que conteúdo do vault pessoal (outras organizações, pessoas, servidores,
+changes, estação local) apareça num vault compartilhado montado como subpasta.
+
+A denylist é derivada do vault pessoal a cada execução: nome de arquivo, name,
+hostname, ip_address, code, id, aliases e ssh_alias de toda nota que fica fora dos
+mounts, mais os nomes e códigos das organizações que não são a do mount. Membros
+declarados no roster do mount (cabeçalhos "## Nome") são permitidos. A denylist
+nunca é gravada no repositório compartilhado.
+
+Configuração em <vault>/.vault/config.json:
+  shared_mounts: [{"path": "...", "organization": "...", "roster": "15 - Team/Equipe.md"}]
+  guard.allow: termos sempre permitidos
+  guard.common_org_words: nomes de organização que são palavras comuns
+                          (bloqueados só como prefixo "<Org> - ")
+
+Uso: shared-vault-guard [DIR_DO_MOUNT ...]   (sem argumento: todos os mounts)
+     shared-vault-guard --list [DIR_DO_MOUNT] (mostra a denylist gerada)
+     shared-vault-guard --scan DIR            (varre um diretório qualquer com a denylist de todos os mounts)
+Saída 1 quando encontra ocorrência.
+"""
+import os
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import vaultcfg  # noqa: E402
+
+# Pastas cujo nome de arquivo não identifica nada (datas, modelos, ferramentas, painéis).
+SKIP_DIRS = {"13 - Meetings", "99 - Templates", "16 - Tools", "00 - Dashboard"}
+# Valores genéricos que podem aparecer legitimamente em qualquer vault.
+BASE_ALLOW = {"127.0.0.1", "0.0.0.0", "localhost", "Cross-Organization", "production", "local",
+              "README", "AGENTS", "CLAUDE", "GEMINI", "Claude", "Gemini", "Codex", "chat"}
+MIN_LEN = 4
+
+
+def frontmatter(path):
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    props, key = {}, None
+    for line in parts[1].splitlines():
+        m = re.match(r"^([A-Za-z_][\w-]*):\s*(.*)$", line)
+        if m:
+            key = m.group(1)
+            props[key] = [m.group(2).strip().strip("'\"")] if m.group(2).strip() else []
+        elif key and re.match(r"^\s+-\s+", line):
+            props[key].append(re.sub(r"^\s+-\s+", "", line).strip().strip("'\""))
+    return props
+
+
+def roster_members(mount_dir, roster):
+    if not roster:
+        return set()
+    f = mount_dir / roster
+    if not f.is_file():
+        return set()
+    return {n.strip() for n in re.findall(r"^## (.+)$", f.read_text(encoding="utf-8"), re.M)}
+
+
+def build_denylist(cfg, mount, include_mounts=False):
+    root = Path(cfg["vault_dir"])
+    mount_org = mount.get("organization", "")
+    members = roster_members(root / mount["path"], mount.get("roster")) if mount.get("path") else set()
+    common = set(cfg["guard"].get("common_org_words", []))
+    allow = BASE_ALLOW | set(cfg["guard"].get("allow", []))
+    mounts = {root / p for p in vaultcfg.shared_mount_paths(cfg)}
+    terms = set()
+
+    for org_note in (root / "01 - Organizations").glob("*.md"):
+        name = org_note.stem
+        if name == mount_org:
+            continue
+        if name in common:
+            terms.add(f"{name} - ")
+            continue
+        terms.add(name)
+        terms.update(v for v in frontmatter(org_note).get("code", []) if v)
+
+    # Toda nota que permanece no vault pessoal é pessoal, inclusive as da organização do mount.
+    for dirpath, dirs, files in os.walk(root):
+        d = Path(dirpath)
+        if d in mounts and not include_mounts:
+            dirs[:] = []
+            continue
+        rel = d.relative_to(root)
+        for mp in mounts:
+            if include_mounts and (d == mp or mp in d.parents):
+                rel = d.relative_to(mp)
+        if rel.parts and (rel.parts[0] in SKIP_DIRS or rel.parts[0].startswith(".")):
+            dirs[:] = []
+            continue
+        dirs[:] = [x for x in dirs if not x.startswith(".") and x != "node_modules"]
+        if not rel.parts or rel.parts[0] == "01 - Organizations":
+            continue
+        for f in files:
+            if not f.endswith(".md"):
+                continue
+            p = d / f
+            props = frontmatter(p)
+            if p.stem in members or any(n in members for n in props.get("name", [])):
+                continue
+            terms.add(p.stem)
+            for k in ("name", "hostname", "ip_address", "code", "id", "aliases", "ssh_alias"):
+                terms.update(v for v in props.get(k, []) if v)
+    return sorted(t for t in terms if len(t) >= MIN_LEN and t not in allow)
+
+
+def scan(target, terms):
+    pats = [(t, re.compile(r"(?<![\w.-])" + re.escape(t) + r"(?![\w-])", re.IGNORECASE)) for t in terms]
+    hits = []
+    for dirpath, dirs, files in os.walk(target):
+        dirs[:] = [x for x in dirs if x not in (".git", "node_modules")]
+        for f in files:
+            p = Path(dirpath) / f
+            try:
+                text = p.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                for term, pat in pats:
+                    if pat.search(line):
+                        hits.append(f"{p.relative_to(target)}:{n}: termo do vault pessoal -> {term}")
+    return hits
+
+
+def main():
+    cfg = vaultcfg.load()
+    root = Path(cfg["vault_dir"])
+    argv = sys.argv[1:]
+    mounts = [m if isinstance(m, dict) else {"path": m} for m in cfg["shared_mounts"]]
+
+    if "--scan" in argv:
+        # Varre um diretório arbitrário (ex.: repo público de configuração) contra
+        # a denylist mais ampla: todas as organizações e todas as notas pessoais.
+        target = Path(argv[argv.index("--scan") + 1]).resolve()
+        terms = build_denylist(cfg, {"organization": "", "path": ""}, include_mounts=True)
+        terms = sorted(set(terms) | {m.get("organization") for m in mounts if m.get("organization")})
+        # Nomes padrão de notas do próprio framework não identificam ninguém
+        framework = {Path(cfg["policy_note"]).stem, Path(cfg["agent_rules_note"]).stem}
+        terms = [x for x in terms if x not in framework]
+        hits = scan(target, terms)
+        for h in hits:
+            print(f"  - {h}")
+        print(f"{'✗' if hits else '✓'} Varredura {target} ({len(terms)} termos, {len(hits)} ocorrências)")
+        return 1 if hits else 0
+
+    args = [a for a in argv if not a.startswith("--")]
+    if args:
+        wanted = {Path(a).resolve() for a in args}
+        mounts = [m for m in mounts if (root / m["path"]).resolve() in wanted]
+    if "--list" in argv:
+        for m in mounts:
+            print("\n".join(build_denylist(cfg, m)))
+        return 0
+    failed = False
+    for m in mounts:
+        target = root / m["path"]
+        if not target.is_dir():
+            continue
+        terms = build_denylist(cfg, m)
+        hits = scan(target, terms)
+        if hits:
+            failed = True
+            print(f"✗ Vazamento do vault pessoal em {target}:")
+            for h in hits:
+                print(f"  - {h}")
+        else:
+            print(f"✓ Shared vault guard {m['path']} ({len(terms)} termos)")
+    if failed:
+        print("\nRemova as ocorrências. O vault compartilhado não pode citar outras organizações, notas pessoais ou a estação local.")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

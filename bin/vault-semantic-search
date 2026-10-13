@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""
+vault_semantic_search.py: Motor de Busca Semântica Leve para Obsidian Work Vault
+
+Modos:
+1. Local FastEmbed (Padrão, 100% Offline): ONNX Runtime CPU multithreaded com
+   o modelo 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2' (384 dimensões).
+2. Google Gemini API: Se GEMINI_API_KEY estiver presente, utiliza 'text-embedding-004' (768 dimensões).
+
+O script indexa incrementalmente apenas notas modificadas e guarda o cache de vetores.
+"""
+
+import os
+import sys
+import json
+import hashlib
+import argparse
+import urllib.request
+import urllib.parse
+from pathlib import Path
+import numpy as np
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import vaultcfg  # noqa: E402
+
+# ANSI Colors
+CYAN = "\033[96m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+
+CACHE_FILE_NAME = ".semantic_cache.json"
+
+def resolve_vault_path(custom_path=None):
+    return vaultcfg.vault_dir(custom_path)
+
+def get_gemini_embedding(text, api_key):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={api_key}"
+    payload = json.dumps({
+        "model": "models/text-embedding-004",
+        "content": {"parts": [{"text": text}]}
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        return data["embedding"]["values"]
+
+class SemanticEngine:
+    def __init__(self, vault_path, force_local=False):
+        self.vault_path = Path(vault_path)
+        self.cache_dir = self.vault_path / ".vault"  # cache derivado do conteúdo: fica no vault, nunca neste repo
+        self.cache_path = self.cache_dir / CACHE_FILE_NAME
+        self.api_key = os.environ.get("GEMINI_API_KEY") if not force_local else None
+
+        self.fastembed_model = None
+        self.engine_name = "Gemini API (text-embedding-004)" if self.api_key else "Local FastEmbed (Multilingual MiniLM-L12)"
+
+        if not self.api_key:
+            try:
+                from fastembed import TextEmbedding
+                self.fastembed_model = TextEmbedding(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+            except ImportError:
+                print("Erro: fastembed não está instalado. Execute com o venv configurado.", file=sys.stderr)
+                sys.exit(1)
+
+        self.cache = self._load_cache()
+
+    def _load_cache(self):
+        if self.cache_path.exists():
+            try:
+                with open(self.cache_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if data.get("engine") == self.engine_name:
+                        return data
+            except Exception:
+                pass
+        return {"engine": self.engine_name, "files": {}}
+
+    def _save_cache(self):
+        try:
+            with open(self.cache_path, "w", encoding="utf-8") as f:
+                json.dump(self.cache, f, ensure_ascii=False)
+        except Exception as e:
+            print(f"Aviso: Não foi possível salvar o cache de embeddings: {e}", file=sys.stderr)
+
+    def chunk_document(self, rel_path, content):
+        lines = content.splitlines()
+        chunks = []
+        current_chunk = []
+        start_line = 1
+
+        for i, line in enumerate(lines, start=1):
+            if line.startswith("#") and current_chunk:
+                text = "\n".join(current_chunk).strip()
+                if len(text) > 30:
+                    chunks.append({"start_line": start_line, "text": text})
+                current_chunk = [line]
+                start_line = i
+            else:
+                current_chunk.append(line)
+                if len("\n".join(current_chunk)) > 1200:
+                    text = "\n".join(current_chunk).strip()
+                    chunks.append({"start_line": start_line, "text": text})
+                    current_chunk = []
+                    start_line = i + 1
+
+        if current_chunk:
+            text = "\n".join(current_chunk).strip()
+            if len(text) > 30:
+                chunks.append({"start_line": start_line, "text": text})
+
+        return chunks
+
+    def compute_embedding(self, text):
+        if self.api_key:
+            return get_gemini_embedding(text, self.api_key)
+        else:
+            return list(self.fastembed_model.embed([text]))[0].tolist()
+
+    def sync_index(self, verbose=False):
+        md_files = [p for p in self.vault_path.rglob("*.md") if not any(part.startswith(".") for part in p.parts)]
+        cache_files = self.cache.setdefault("files", {})
+        updated_count = 0
+
+        for p in md_files:
+            rel = str(p.relative_to(self.vault_path))
+            # Ignora templates se desejar
+            if rel.startswith("99 - Templates/"):
+                continue
+
+            try:
+                content = p.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+
+            file_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
+            cached_entry = cache_files.get(rel)
+
+            if cached_entry and cached_entry.get("hash") == file_hash:
+                continue
+
+            chunks = self.chunk_document(rel, content)
+            if not chunks:
+                continue
+
+            chunk_records = []
+            if self.api_key:
+                for c in chunks:
+                    try:
+                        emb = self.compute_embedding(c["text"][:1500])
+                        chunk_records.append({
+                            "start_line": c["start_line"],
+                            "text": c["text"][:400],
+                            "vector": emb
+                        })
+                    except Exception as e:
+                        if verbose:
+                            print(f"Erro em {rel}: {e}", file=sys.stderr)
+            else:
+                texts = [c["text"][:1500] for c in chunks]
+                try:
+                    embeddings = list(self.fastembed_model.embed(texts))
+                    for c, emb in zip(chunks, embeddings):
+                        chunk_records.append({
+                            "start_line": c["start_line"],
+                            "text": c["text"][:400],
+                            "vector": emb.tolist()
+                        })
+                except Exception as e:
+                    if verbose:
+                        print(f"Erro gerando embeddings para {rel}: {e}", file=sys.stderr)
+
+            cache_files[rel] = {
+                "hash": file_hash,
+                "title": p.stem,
+                "chunks": chunk_records
+            }
+            updated_count += 1
+
+        if updated_count > 0:
+            self._save_cache()
+            if verbose:
+                print(f"✓ Índice semântico atualizado ({updated_count} notas processadas).", file=sys.stderr)
+
+    def search(self, query, top_k=5):
+        self.sync_index(verbose=False)
+        query_vec = np.array(self.compute_embedding(query), dtype=np.float32)
+        q_norm = np.linalg.norm(query_vec)
+        if q_norm > 0:
+            query_vec /= q_norm
+
+        results = []
+        cache_files = self.cache.get("files", {})
+
+        for rel, data in cache_files.items():
+            for c in data.get("chunks", []):
+                vec = np.array(c["vector"], dtype=np.float32)
+                v_norm = np.linalg.norm(vec)
+                if v_norm > 0:
+                    vec /= v_norm
+                score = float(np.dot(query_vec, vec))
+                results.append({
+                    "file": rel,
+                    "title": data.get("title", rel),
+                    "line": c.get("start_line", 1),
+                    "score": round(score * 100, 2),
+                    "snippet": c.get("text", "")
+                })
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+
+        # Agrupa por nota mantendo o melhor chunk
+        seen_files = set()
+        deduped = []
+        for r in results:
+            if r["file"] not in seen_files:
+                seen_files.add(r["file"])
+                deduped.append(r)
+                if len(deduped) >= top_k:
+                    break
+
+        return deduped
+
+def main():
+    parser = argparse.ArgumentParser(description="Busca Semântica Leve no Obsidian Work Vault")
+    parser.add_argument("query", nargs="*", help="Termo, conceito ou pergunta a buscar")
+    parser.add_argument("--top-k", type=int, default=5, help="Número de resultados (default: 5)")
+    parser.add_argument("--json", action="store_true", dest="as_json", help="Exportar resposta em JSON")
+    parser.add_argument("--reindex", action="store_true", help="Forçar reindexação completa")
+    parser.add_argument("--local", action="store_true", help="Forçar modo local mesmo se houver GEMINI_API_KEY")
+    args = parser.parse_args()
+
+    query_str = " ".join(args.query).strip()
+    if not query_str and not args.reindex:
+        parser.print_help()
+        sys.exit(1)
+
+    vault_path = resolve_vault_path()
+    engine = SemanticEngine(vault_path, force_local=args.local)
+
+    if args.reindex:
+        engine.cache = {"engine": engine.engine_name, "files": {}}
+        engine.sync_index(verbose=True)
+        if not query_str:
+            print("Reindexação concluída.")
+            return
+
+    results = engine.search(query_str, top_k=args.top_k)
+
+    if args.as_json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+    else:
+        print(f"\n{BOLD}{CYAN}🧠 Busca Semântica · [{engine.engine_name}]{RESET}")
+        print(f"  {DIM}Consulta:{RESET} \"{query_str}\"\n")
+
+        if not results:
+            print("  Nenhum resultado relevante encontrado.")
+            return
+
+        for r in results:
+            score_col = GREEN if r["score"] >= 70 else (YELLOW if r["score"] >= 50 else DIM)
+            print(f"  • {score_col}[{r['score']:.1f}%]{RESET} {BOLD}[[{r['file']}#L{r['line']}|{r['title']}]] {DIM}(Linha {r['line']}){RESET}")
+            # Snippet clean
+            snip_lines = [l.strip() for l in r["snippet"].splitlines() if l.strip()][:3]
+            snip_text = " ".join(snip_lines)[:180]
+            print(f"    {DIM}\"{snip_text}...\"{RESET}\n")
+
+if __name__ == "__main__":
+    main()

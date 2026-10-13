@@ -1,0 +1,16 @@
+{
+  "name": "read_note",
+  "description": "Read the full markdown content and YAML properties of a specific note in the Obsidian Work Vault.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path_or_title": {
+        "type": "string",
+        "description": "Relative path or note title (e.g. 'app-prod-01' or '04 - Servers/Org/app-prod-01.md')."
+      }
+    },
+    "required": [
+      "path_or_title"
+    ]
+  }
+}

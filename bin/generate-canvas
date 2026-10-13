@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""
+generate-canvas: Gerador de Mapas Visuais Espaciais (.canvas) para Obsidian
+
+Gera representações espaciais visuais interativas da arquitetura e infraestrutura
+(Servidores -> Serviços -> Aplicações) em arquivos .canvas compatíveis com a especificação JSON Canvas.
+
+Cria:
+- 11 - Architecture/Canvas - <Organização> Infrastructure.canvas (uma por organização do config)
+- 11 - Architecture/Canvas - Global Topology.canvas
+"""
+
+import os
+import sys
+import json
+import uuid
+import re
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import vaultcfg  # noqa: E402
+
+CFG = vaultcfg.load()
+MOUNTS = vaultcfg.shared_mount_paths(CFG)
+
+def resolve_vault_path(custom_path=None):
+    return vaultcfg.vault_dir(custom_path)
+
+def parse_frontmatter(file_path):
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return {}, ""
+    if not content.startswith("---"):
+        return {}, content
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return {}, content
+    raw_yaml = parts[1]
+    body = parts[2]
+    props = {}
+    for line in raw_yaml.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" in line:
+            k, v = line.split(":", 1)
+            props[k.strip()] = v.strip().strip("'\"")
+    return props, body
+
+def short_id():
+    return uuid.uuid4().hex[:12]
+
+def build_org_canvas(vault_dir, org_name):
+    nodes = []
+    edges = []
+
+    # Title Banner Node
+    nodes.append({
+        "id": "banner-header",
+        "type": "text",
+        "text": f"# Topologia Espacial de Infraestrutura · {org_name}\n\nCartões interativos de Servidores, Daemons, Bancos de Dados e Aplicações.\nClique duplo em qualquer nó para abrir a nota documental.",
+        "x": 0,
+        "y": -220,
+        "width": 1100,
+        "height": 130,
+        "color": "5"
+    })
+
+    # Find servers, services, applications
+    servers_dir = vault_dir / "04 - Servers"
+    services_dir = vault_dir / "05 - Services"
+    apps_dir = vault_dir / "06 - Applications"
+
+    servers = []
+    services = []
+    apps = []
+
+    for p in vault_dir.rglob("*.md"):
+        if any(part.startswith(".") for part in p.parts):
+            continue
+        rel = p.relative_to(vault_dir)
+        rel_str = str(rel)
+        # Vault compartilhado montado como subpasta: regras de pasta relativas ao mount
+        rule_str = rel_str
+        for mount in MOUNTS:
+            if rel_str.startswith(mount + "/"):
+                rule_str = rel_str[len(mount) + 1:]
+        props, _ = parse_frontmatter(p)
+
+        file_org = props.get("organization", "")
+        # Include if matches org or if org is Global
+        if org_name != "Global" and file_org != org_name and file_org != "Cross-Organization":
+            continue
+
+        if rule_str.startswith("04 - Servers/"):
+            servers.append((p.stem, rel_str, props))
+        elif rule_str.startswith("05 - Services/"):
+            services.append((p.stem, rel_str, props))
+        elif rule_str.startswith("06 - Applications/"):
+            apps.append((p.stem, rel_str, props))
+
+    node_map = {} # stem or rel_str -> node_id
+
+    # Layout Parameters
+    col_w = 340
+    node_h = 160
+    v_gap = 40
+    col_gap = 140
+
+    x_server = 0
+    x_service = x_server + col_w + col_gap
+    x_app = x_service + col_w + col_gap
+
+    # Group Labels
+    nodes.append({
+        "id": "grp-servers",
+        "type": "group",
+        "label": "🖥️ Servidores & Hosts",
+        "x": x_server - 20,
+        "y": -40,
+        "width": col_w + 40,
+        "height": max(400, len(servers) * (node_h + v_gap) + 80),
+        "color": "1"
+    })
+
+    nodes.append({
+        "id": "grp-services",
+        "type": "group",
+        "label": "⚙️ Daemons, Bancos & Containers",
+        "x": x_service - 20,
+        "y": -40,
+        "width": col_w + 40,
+        "height": max(400, len(services) * (node_h + v_gap) + 80),
+        "color": "3"
+    })
+
+    nodes.append({
+        "id": "grp-apps",
+        "type": "group",
+        "label": "📱 Aplicações & SPAs",
+        "x": x_app - 20,
+        "y": -40,
+        "width": col_w + 40,
+        "height": max(400, len(apps) * (node_h + v_gap) + 80),
+        "color": "4"
+    })
+
+    # Place Servers
+    y = 30
+    for stem, rel, props in sorted(servers, key=lambda x: x[0]):
+        nid = f"srv-{short_id()}"
+        node_map[stem] = nid
+        node_map[rel] = nid
+        nodes.append({
+            "id": nid,
+            "type": "file",
+            "file": rel,
+            "x": x_server,
+            "y": y,
+            "width": col_w,
+            "height": node_h,
+            "color": "1"
+        })
+        y += node_h + v_gap
+
+    # Place Services
+    y = 30
+    for stem, rel, props in sorted(services, key=lambda x: x[0]):
+        nid = f"svc-{short_id()}"
+        node_map[stem] = nid
+        node_map[rel] = nid
+        nodes.append({
+            "id": nid,
+            "type": "file",
+            "file": rel,
+            "x": x_service,
+            "y": y,
+            "width": col_w,
+            "height": node_h,
+            "color": "3"
+        })
+
+        # Connect server -> service
+        srv_name = props.get("server", "").strip().strip("[]")
+        if srv_name and srv_name in node_map:
+            edges.append({
+                "id": f"edge-{short_id()}",
+                "fromNode": node_map[srv_name],
+                "fromSide": "right",
+                "toNode": nid,
+                "toSide": "left",
+                "label": f"Port {props.get('port', '')}".strip()
+            })
+        y += node_h + v_gap
+
+    # Place Applications
+    y = 30
+    for stem, rel, props in sorted(apps, key=lambda x: x[0]):
+        nid = f"app-{short_id()}"
+        node_map[stem] = nid
+        node_map[rel] = nid
+        nodes.append({
+            "id": nid,
+            "type": "file",
+            "file": rel,
+            "x": x_app,
+            "y": y,
+            "width": col_w,
+            "height": node_h,
+            "color": "4"
+        })
+
+        # Connect service -> app or server -> app
+        srv_name = props.get("server", "").strip().strip("[]")
+        if srv_name and srv_name in node_map:
+            edges.append({
+                "id": f"edge-{short_id()}",
+                "fromNode": node_map[srv_name],
+                "fromSide": "right",
+                "toNode": nid,
+                "toSide": "left",
+                "label": "Deploy"
+            })
+        y += node_h + v_gap
+
+    return {"nodes": nodes, "edges": edges}
+
+def main():
+    vault_dir = resolve_vault_path()
+    arch_dir = vault_dir / "11 - Architecture"
+    arch_dir.mkdir(parents=True, exist_ok=True)
+
+    orgs = [o for o in vaultcfg.organizations(CFG) if o != "Cross-Organization"] + ["Global"]
+    created_files = []
+
+    for org in orgs:
+        canvas_data = build_org_canvas(vault_dir, org)
+        file_name = f"Canvas - {org} Infrastructure.canvas" if org != "Global" else "Canvas - Global Topology.canvas"
+        target_path = arch_dir / file_name
+        target_path.write_text(json.dumps(canvas_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        created_files.append(str(target_path.relative_to(vault_dir)))
+        print(f"✓ Gerado {target_path.name} ({len(canvas_data['nodes'])} nós, {len(canvas_data['edges'])} conexões)")
+
+    return created_files
+
+if __name__ == "__main__":
+    main()

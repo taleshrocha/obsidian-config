@@ -87,7 +87,7 @@ O autor vem de `VAULT_AUTHOR` ou de `git config user.name`.
 
 Um vault de time é um repositório próprio com `.vault/config.json` (por exemplo `change_id_author: true`, `journal.per_author: true`, `privacy_checks: true`, `generate_agent_files: false`, `mcp_name`). Ele não carrega cópia de ferramentas. Instalar este repositório é opcional: quem já tem o próprio setup de Obsidian só clona e abre o vault. Quem instala ganha validação no pre-commit, MCP e CLI. Para valer para todos, a CI do vault de time clona este repositório e roda `bin/vault-validate` a cada push.
 
-Quem também tem vault pessoal monta o vault do time como subpasta, ignorada pelo git pessoal, e o declara em `shared_mounts`. Com isso:
+Quem também tem vault pessoal monta o vault do time como subpasta de `80 - Shared Vaults/`, um vault por projeto (ex.: `80 - Shared Vaults/Time A`). A pasta `80 - Shared Vaults/` fica no `.gitignore` do vault pessoal, e cada vault é declarado em `shared_mounts`. Assim a numeração do vault pessoal continua livre e os vaults de outros projetos ficam juntos num só lugar. Com isso:
 
 - `vault-validate` do vault pessoal valida o mount com a config do próprio mount.
 - `sync-agents` registra um MCP para cada vault (`mcp_name` de cada um).

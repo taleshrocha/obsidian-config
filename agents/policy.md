@@ -146,7 +146,7 @@ Vale para relatórios, notas, descrições de PR e mensagens. A skill `unslop` a
 
 ## 14. Vaults compartilhados e roteamento de conhecimento
 
-Um vault de time é um repositório próprio, com `.vault/config.json` próprio. Ele pode ser aberto sozinho ou montado como subpasta de um vault pessoal (declarado em `shared_mounts`, com a pasta no `.gitignore` do pessoal).
+Um vault de time é um repositório próprio, com `.vault/config.json` próprio. Ele pode ser aberto sozinho ou montado num vault pessoal, sempre em `80 - Shared Vaults/<Projeto>/`: um vault por projeto, todos sob essa pasta, declarados em `shared_mounts` e com `80 - Shared Vaults/` no `.gitignore` do pessoal. Não monte vaults de time na raiz nem com numeração própria (`17 - ...`), porque isso mistura com as pastas do vault pessoal.
 
 **Roteamento:** antes de escrever, decida o destino de cada fato. Critério: se outro membro do time precisaria do fato para trabalhar, ele vai para o vault do time. Ficam no pessoal: diários pessoais, tarefas e prioridades, perfis e avaliações de pessoas, mensagens, acessos pessoais (perfil de VPN, tokens, caminhos da máquina) e changes do próprio vault pessoal.
 

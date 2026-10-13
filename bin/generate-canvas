@@ -79,7 +79,7 @@ def build_org_canvas(vault_dir, org_name):
         if any(part.startswith(".") for part in p.parts):
             continue
         rel = p.relative_to(vault_dir)
-        rel_str = str(rel)
+        rel_str = rel.as_posix()
         # Vault compartilhado montado como subpasta: regras de pasta relativas ao mount
         rule_str = rel_str
         for mount in MOUNTS:
@@ -238,7 +238,7 @@ def main():
         file_name = f"Canvas - {org} Infrastructure.canvas" if org != "Global" else "Canvas - Global Topology.canvas"
         target_path = arch_dir / file_name
         target_path.write_text(json.dumps(canvas_data, indent=2, ensure_ascii=False), encoding="utf-8")
-        created_files.append(str(target_path.relative_to(vault_dir)))
+        created_files.append(target_path.relative_to(vault_dir).as_posix())
         print(f"✓ Gerado {target_path.name} ({len(canvas_data['nodes'])} nós, {len(canvas_data['edges'])} conexões)")
 
     return created_files

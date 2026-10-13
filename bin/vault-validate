@@ -134,11 +134,11 @@ def check_files(vault_dir):
             if not file.endswith(".md"):
                 # Anexos (imagens, PDFs, canvas) são alvos válidos de [[...]] pelo nome com extensão
                 known_notes.add(file)
-                known_notes.add(os.path.relpath(os.path.join(root, file), vault_dir))
+                known_notes.add(os.path.relpath(os.path.join(root, file), vault_dir).replace(os.sep, "/"))
                 continue
             if file.endswith(".md"):
                 full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, vault_dir)
+                rel_path = os.path.relpath(full_path, vault_dir).replace(os.sep, "/")  # "/" em qualquer sistema
                 all_files.append((rel_path, full_path))
                 
                 # Note names for link checking
@@ -147,7 +147,7 @@ def check_files(vault_dir):
                 known_notes.add(rel_path)
                 known_notes.add(os.path.splitext(rel_path)[0])
                 # Directory names can also be valid link targets
-                dir_name = os.path.dirname(rel_path)
+                dir_name = os.path.dirname(rel_path).replace(os.sep, "/")
                 if dir_name:
                     known_notes.add(dir_name)
                     known_notes.add(dir_name + "/")
@@ -274,7 +274,7 @@ def check_privacy(vault_dir):
             if not file.endswith((".md", ".canvas", ".base")):
                 continue
             full = os.path.join(root, file)
-            rel = os.path.relpath(full, vault_dir)
+            rel = os.path.relpath(full, vault_dir).replace(os.sep, "/")
             with open(full, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 

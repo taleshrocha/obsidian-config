@@ -125,7 +125,7 @@ def audit_sources(vault_dir):
     wiki_notes = []
     for p in md_notes:
         rel = p.relative_to(vault_dir)
-        rel_str = str(rel)
+        rel_str = rel.as_posix()
         # Excluir a própria pasta de fontes brutas e ferramentas da indexação da wiki
         if rel_str.startswith("90 - Files/Sources") or rel_str.startswith("16 - Tools"):
             continue

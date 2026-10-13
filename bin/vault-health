@@ -58,7 +58,7 @@ def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False)
     for p in md_files:
         rel = p.relative_to(vault_dir)
         targets[p.stem] = rel
-        targets[str(rel)] = rel
+        targets[rel.as_posix()] = rel
 
     incoming = {p.stem: set() for p in md_files}
     link_pattern = re.compile(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]')
@@ -68,7 +68,7 @@ def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False)
 
     for p in md_files:
         rel = p.relative_to(vault_dir)
-        rel_str = str(rel)
+        rel_str = rel.as_posix()
         try:
             content = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:
@@ -115,7 +115,7 @@ def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False)
     for stem, rel in targets.items():
         if "/" in stem:
             continue
-        rel_str = str(rel)
+        rel_str = rel.as_posix()
         if any(pat in rel_str for pat in exempt_patterns):
             continue
         # Also exempt year archives or changes

@@ -111,6 +111,20 @@ class TestValidator(Base):
         self.assertEqual(r.returncode, 0, r.stdout)
 
 
+class TestPrivacyOptions(Base):
+    def test_allowed_home_users_and_exempt_paths(self):
+        v = self.make_vault(name="team-opts", privacy_checks=True, privacy_allow_home_users=["deploy"],
+                            privacy_exempt_paths=["10 - Procedures/Credenciais.md"])
+        write(v / "10 - Procedures" / "a.md", "---\ntype: procedure\n---\n- cd /home/deploy/app\n")  # privacy-gate: allow
+        write(v / "10 - Procedures" / "Credenciais.md", "---\ntype: procedure\n---\n- Senha: `123`\n")
+        r = self.run_tool("vault-validate", v, vault=v)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        write(v / "10 - Procedures" / "b.md", "---\ntype: procedure\n---\n- Senha: `123`\n- cd /home/fulano\n")  # privacy-gate: allow
+        r = self.run_tool("vault-validate", v, vault=v)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("b.md", r.stdout)
+
+
 class TestCli(Base):
     def test_new_log_meta_change(self):
         v = self.make_vault(change_id_author=True, journal={"dir": "13 - Journal", "per_author": True, "type": "journal"},

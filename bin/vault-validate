@@ -157,10 +157,10 @@ def check_files(vault_dir):
         is_template = rule_path.startswith("99 - Templates/")
         props, body = parse_frontmatter(full_path)
         
-        # Secret scan (run on all files including templates)
+        # Secret scan (run on all files including templates; notas em privacy_exempt_paths ficam de fora)
         with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
             full_content = f.read()
-            for pat in secret_patterns:
+            for pat in ([] if privacy_exempt(_rule_path(rel_path)) else secret_patterns):
                 match = pat.search(full_content)
                 if match:
                     secret_errors.append(f"{rel_path}: Potentially exposed secret detected: {match.group(0)[:15]}...")
@@ -257,7 +257,12 @@ def check_shared_mounts(vault_dir):
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
 EMAIL_ALLOWED = re.compile(r"^git@|@(?:example\.(?:com|org|net)|exemplo\.com|dominio\.com)$", re.I)
 PHONE_RE = re.compile(r"\(?\b\d{2}\)?\s?9?\d{4}-\d{4}\b")
-HOME_PATH_RE = re.compile(r"(?:/home/[a-z_][\w.-]*|/Users/[A-Za-z][\w.-]*|C:\\Users\\)")
+HOME_PATH_RE = re.compile(r"(?:/home/([a-z_][\w.-]*)|/Users/([A-Za-z][\w.-]*)|C:\\Users\\(\w+))")
+
+
+def privacy_exempt(rel):
+    """Notas isentas por decisão explícita do time (privacy_exempt_paths no config)."""
+    return any(rel == p or rel.startswith(p.rstrip("/") + "/") for p in CFG.get("privacy_exempt_paths", []))
 PW_LINE_RE = re.compile(r"(?i)\b(?:senha|password|passwd|pwd)\b")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 WEAK_PW_RE = re.compile(r"(?i)^(?:senha|password|pass|admin|root|teste?)[@#!_.-]?\d+$|^\d{3,}$")
@@ -275,6 +280,8 @@ def check_privacy(vault_dir):
                 continue
             full = os.path.join(root, file)
             rel = os.path.relpath(full, vault_dir).replace(os.sep, "/")
+            if privacy_exempt(rel):
+                continue
             with open(full, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
@@ -295,8 +302,12 @@ def check_privacy(vault_dir):
                         errors.append(f"{rel}:{n}: e-mail real ({m.group(0)[:3]}...). Use papel/perfil ou usuario@example.com")
                 if PHONE_RE.search(line):
                     errors.append(f"{rel}:{n}: número de telefone")
-                if HOME_PATH_RE.search(line):
-                    errors.append(f"{rel}:{n}: caminho de home pessoal. Use $SEBITO_REPOS ou ~/")
+                allowed_homes = set(CFG.get("privacy_allow_home_users", []))
+                for hm in HOME_PATH_RE.finditer(line):
+                    user = next((g for g in hm.groups() if g), "")
+                    if user not in allowed_homes:
+                        errors.append(f"{rel}:{n}: caminho de home pessoal ({user}). Use uma variável como $<TIME>_REPOS, ou libere contas de servidor em privacy_allow_home_users")
+                        break
                 if PW_LINE_RE.search(line):
                     for span in CODE_SPAN_RE.findall(line):
                         s = span.strip()

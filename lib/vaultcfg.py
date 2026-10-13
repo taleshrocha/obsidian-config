@@ -53,6 +53,11 @@ DEFAULTS = {
     "journal": {"dir": "13 - Meetings", "per_author": False, "type": "meeting"},
     # Checagens de privacidade (e-mail, telefone, home, senha literal, Dataview sem escopo).
     "privacy_checks": False,
+    # Contas de servidor cujo /home/<conta> pode aparecer (ex.: ["nginx", "deploy"]).
+    "privacy_allow_home_users": [],
+    # Notas isentas das checagens de privacidade e segredo, por decisão explícita do time
+    # (ex.: uma nota de credenciais de ambientes de teste). Use o mínimo possível.
+    "privacy_exempt_paths": [],
     # Gera CLAUDE.md/GEMINI.md/AGENTS.md na raiz a partir da base + regras privadas.
     # Vault de time mantém o próprio AGENTS.md: use false.
     "generate_agent_files": True,

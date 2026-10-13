@@ -227,7 +227,7 @@ class TestAgentPolicy(Base):
         self.assertEqual(self.run_tool("sync-agents", "--quiet", vault=v).returncode, 0)
         text = (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("agents/policy.md", text)
-        self.assertIn("team vault contract", text)
+        self.assertIn("contrato do vault de time", text)
         self.assertEqual((v / "AGENTS.md").read_text(encoding="utf-8"), "# Contrato\n")
         codex = (self.home / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("Loop engineering", codex)  # política base embutida para o Codex
@@ -242,7 +242,7 @@ class TestAgentPolicy(Base):
         self.assertTrue((v / "07 - Infrastructure" / "AI" / "Shared Agent Policy.md").is_file())
         self.assertTrue((v / "07 - Infrastructure" / "AI" / "Agent Rules.md").is_file())
         text = (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
-        self.assertIn("Local Policy (overrides", text)
+        self.assertIn("Política local (prevalece", text)
         self.assertIn("Shared Agent Policy.md", text)
 
 

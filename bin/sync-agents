@@ -92,10 +92,10 @@ def private_rules() -> str:
 def local_policy_line() -> str:
     """Política local: a nota do vault ou, em vault de time, o AGENTS.md dele."""
     if POLICY_FILE.is_file():
-        return f"Local Policy (overrides the base on conflict): `@{POLICY_FILE}`"
+        return f"Política local (prevalece sobre a base em caso de conflito): `@{POLICY_FILE}`"
     if not CFG.get("generate_agent_files", True) and (VAULT_DIR / "AGENTS.md").is_file():
-        return f"Local Policy (team vault contract, overrides the base on conflict): `@{VAULT_DIR / 'AGENTS.md'}`"
-    return "Local Policy: none (create the note configured in `policy_note` for vault-specific rules)."
+        return f"Política local (contrato do vault de time, prevalece sobre a base em caso de conflito): `@{VAULT_DIR / 'AGENTS.md'}`"
+    return "Política local: nenhuma (crie a nota configurada em `policy_note` para regras específicas deste vault)."
 
 
 def get_base_agent_instructions(agent_name: str, policy_hash: str = None) -> str:
@@ -129,13 +129,13 @@ def get_sync_targets(vault_only=False):
     """Returns list of (Path, AgentName) targets."""
     targets = [
         (VAULT_DIR / "CLAUDE.md", "Claude Code"),
-        (VAULT_DIR / "GEMINI.md", "Gemini CLI / Antigravity assistant"),
+        (VAULT_DIR / "GEMINI.md", "assistente Gemini CLI / Antigravity"),
         (VAULT_DIR / "AGENTS.md", "Codex"),
     ] if CFG.get("generate_agent_files", True) else []
     if not vault_only:
         targets = [
-            (HOME / ".gemini/GEMINI.md", "Gemini CLI / Antigravity assistant"),
-            (HOME / ".gemini/config/GEMINI.md", "Gemini CLI / Antigravity assistant"),
+            (HOME / ".gemini/GEMINI.md", "assistente Gemini CLI / Antigravity"),
+            (HOME / ".gemini/config/GEMINI.md", "assistente Gemini CLI / Antigravity"),
             (HOME / ".claude/CLAUDE.md", "Claude Code"),
             (HOME / ".codex/AGENTS.md", "Codex"),
         ] + targets

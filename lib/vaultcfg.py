@@ -37,6 +37,8 @@ DEFAULTS = {
         "16 - Tools", "90 - Files", "99 - Templates",
     ],
     "allowed_root_entries": [".git", ".gitignore", ".gitattributes", ".obsidian", ".vault", ".obsidian-config", ".mirrors", ".trash"],
+    # Vaults de time montados como subpasta. Convenção: todos dentro de "80 - Shared Vaults/",
+    # um por projeto (ex.: "80 - Shared Vaults/Time A"), com a pasta no .gitignore do vault.
     "shared_mounts": [],
     "projects_dir": "~/Projects",
     "policy_note": "07 - Infrastructure/AI/Shared Agent Policy.md",

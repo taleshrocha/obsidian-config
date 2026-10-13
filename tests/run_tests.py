@@ -169,6 +169,21 @@ class TestGuard(Base):
         self.assertIn("acme-db", r.stdout)
 
 
+class TestNestedMount(Base):
+    def test_mount_inside_shared_vaults_folder(self):
+        p = self.make_vault(name="personal", shared_mounts=[{"path": "80 - Shared Vaults/Time", "organization": "Time"}])
+        write(p / "04 - Servers" / "meu-pc.md", "---\ntype: server\nenvironment: local\n---\n")
+        m = self.make_vault(name="personal/80 - Shared Vaults/Time")
+        write(m / "04 - Servers" / "app-01.md", "---\ntype: server\nenvironment: production\n---\n[[meu-pc]]\n")
+        r = self.run_tool("vault-validate", p, vault=p)
+        self.assertNotIn("Unexpected top-level directory", r.stdout)
+        self.assertNotEqual(r.returncode, 0)  # o mount linka nota pessoal: o guard precisa acusar
+        self.assertIn("meu-pc", r.stdout)
+        (m / "04 - Servers" / "app-01.md").write_text("---\ntype: server\nenvironment: production\n---\n", encoding="utf-8")
+        r = self.run_tool("vault-validate", p, vault=p)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+
 class TestSyncAgents(Base):
     def test_generates_instructions_and_merges_mcp(self):
         v = self.make_vault(name="personal", generate_agent_files=True)

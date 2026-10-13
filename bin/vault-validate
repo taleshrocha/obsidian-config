@@ -80,7 +80,7 @@ def check_structure(vault_dir):
     # Check for stray files at root other than allowed dotfiles or standard markdown
     allowed_root = ALLOWED_ROOT
     for item in os.listdir(vault_dir):
-        if item in allowed_root or item in SHARED_MOUNTS:
+        if item in allowed_root or item in {m.split("/")[0] for m in SHARED_MOUNTS}:
             continue
         if item.startswith(".") and subprocess.run(["git", "-C", str(vault_dir), "check-ignore", "-q", item],
                                                   capture_output=True).returncode == 0:

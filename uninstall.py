@@ -52,7 +52,8 @@ def points_here(p):
         if p.is_symlink():
             target = os.readlink(p)
             # aponta para este repo, ou é link órfão de uma instalação antiga do obsidian-config
-            return str(REPO) in target or ("obsidian-config" in target and not p.exists())
+            return (str(REPO) in target or ("obsidian-config" in target and not p.exists())
+                    or (p.name == "obsidian-cli" and target.startswith("/opt/Obsidian/")))
         if p.suffix == ".cmd" and p.is_file():
             return str(REPO) in p.read_text(encoding="utf-8", errors="ignore")
     except OSError:

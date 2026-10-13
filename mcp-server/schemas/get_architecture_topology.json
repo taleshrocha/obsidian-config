@@ -6,7 +6,7 @@
     "properties": {
       "organization": {
         "type": "string",
-        "description": "Organization name."
+        "description": "Organization name (nota em 01 - Organizations)."
       }
     },
     "required": [

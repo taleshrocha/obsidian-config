@@ -1,0 +1,21 @@
+{
+  "name": "read_section",
+  "description": "Read ONLY a specific markdown section (under a heading) of a note, saving up to 95% of tokens compared to reading the full file.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path_or_title": {
+        "type": "string",
+        "description": "Relative path or note title (e.g. 'app-prod-01' or '04 - Servers/Org/app-prod-01.md')."
+      },
+      "heading": {
+        "type": "string",
+        "description": "Heading text of the section to retrieve (e.g. 'Acesso e Conectividade' or 'Serviços Hospedados')."
+      }
+    },
+    "required": [
+      "path_or_title",
+      "heading"
+    ]
+  }
+}

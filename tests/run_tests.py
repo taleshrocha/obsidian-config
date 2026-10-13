@@ -132,6 +132,11 @@ class TestCli(Base):
 
 @unittest.skipUnless(shutil.which("node"), "node ausente")
 class TestMcp(Base):
+    def test_schemas_match_tools_list(self):
+        r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "tools" / "gen_mcp_schemas.py"), "--check"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def call(self, v, *msgs):
         env = dict(self.env, OBSIDIAN_VAULT_PATH=str(v))
         lines = [json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})]

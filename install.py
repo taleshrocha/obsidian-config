@@ -243,6 +243,10 @@ def main():
     for t in TOOLS:
         link_tool(t, REPO / "bin" / t)
     link_tool("validate-obsidian-work-vault", REPO / "bin" / "vault-validate")  # nome antigo
+    cli = Path("/opt/Obsidian/obsidian-cli")  # CLI oficial que vem no pacote Linux do Obsidian
+    if cli.exists() and not WINDOWS:
+        link_tool("obsidian-cli", cli)
+        ok("obsidian-cli")
     ok(", ".join(TOOLS))
     if str(bin_dir()) not in os.environ.get("PATH", "").split(os.pathsep):
         warn(f"{bin_dir()} não está no PATH. Adicione ao PATH do seu shell/usuário.")

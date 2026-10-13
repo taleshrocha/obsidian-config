@@ -1,0 +1,16 @@
+{
+  "name": "get_outline",
+  "description": "Retrieve the hierarchical table of contents / headings outline (#, ##, ###) of a note without reading the body text.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path_or_title": {
+        "type": "string",
+        "description": "Relative path or note title (e.g. 'app-prod-01' or '04 - Servers/Org/app-prod-01.md')."
+      }
+    },
+    "required": [
+      "path_or_title"
+    ]
+  }
+}

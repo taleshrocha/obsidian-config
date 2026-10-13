@@ -32,6 +32,10 @@ git clone https://github.com/taleshrocha/obsidian-config.git $HOME\Vault\.obsidi
 & $HOME\Vault\.obsidian-config\install.ps1 --vault $HOME\Vault
 ```
 
+Opções: `--install-obsidian` instala o app se ele faltar (`.deb` no Debian/Ubuntu, Homebrew no macOS, winget no Windows; `--obsidian-version` fixa a versão), `--skip-extensions` pula o download de plugins e temas, e `--no-agents` não mexe nas configurações dos agentes.
+
+Para desfazer a instalação sem tocar no conteúdo do vault: `python3 uninstall.py` (`--dry-run` mostra o que seria removido).
+
 `install.py` é idempotente:
 
 1. Grava o caminho do vault em `~/.config/obsidian-config/config.json` e cria `<vault>/.vault/config.json` a partir de `config.example.json`, se ainda não existir.

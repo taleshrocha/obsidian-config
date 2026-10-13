@@ -233,6 +233,8 @@ def sync_skills(quiet=False):
             if vault_skill.is_dir():
                 for dest in [gemini_skills_dir, claude_skills_dir, codex_skills_dir]:
                     dest_skill = dest / vault_skill.name
+                    if dest_skill.is_symlink() and not dest_skill.exists():
+                        dest_skill.unlink()  # link quebrado de instalação antiga
                     if dest_skill.is_symlink() or (dest_skill.exists() and dest_skill.resolve() == vault_skill.resolve()):
                         continue
                     dest_skill.mkdir(parents=True, exist_ok=True)

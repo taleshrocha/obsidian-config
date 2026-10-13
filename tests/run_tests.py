@@ -264,6 +264,24 @@ class TestInstallAndGate(Base):
         status = subprocess.run(["git", "-C", str(v), "status", "--porcelain"], capture_output=True, text=True).stdout
         self.assertEqual(status.strip(), "", status)
 
+    def test_uninstall_reverts_install(self):
+        v = self.tmp / "vault-u"
+        subprocess.run(["git", "init", "-q", str(v)], check=True)
+        r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "install.py"), "--vault", str(v), "--skip-extensions"],
+                           env=self.env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((self.home / ".claude" / "CLAUDE.md").is_file())
+        r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "uninstall.py"), "--vault", str(v)],
+                           env=self.env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((self.home / ".claude" / "CLAUDE.md").exists())
+        self.assertFalse((self.home / ".config" / "obsidian-config").exists())
+        left = [p.name for p in (self.home / ".local" / "bin").iterdir()] if (self.home / ".local" / "bin").exists() else []
+        self.assertEqual(left, [], left)
+        hooks = subprocess.run(["git", "-C", str(v), "config", "core.hooksPath"], capture_output=True, text=True).stdout
+        self.assertEqual(hooks.strip(), "")
+        self.assertTrue((v / ".vault" / "config.json").is_file())  # conteúdo do vault preservado
+
     def test_privacy_gate_clean(self):
         r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "tools" / "privacy_gate.py")], env=self.env,
                            capture_output=True, text=True, encoding="utf-8")

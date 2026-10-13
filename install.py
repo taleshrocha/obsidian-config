@@ -96,6 +96,49 @@ def make_executable():
             p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def obsidian_installed():
+    if shutil.which("obsidian") or Path("/opt/Obsidian/obsidian").exists():
+        return True
+    if sys.platform == "darwin":
+        return Path("/Applications/Obsidian.app").exists()
+    if WINDOWS:
+        local = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Obsidian" / "Obsidian.exe"
+        return local.exists()
+    return False
+
+
+def install_obsidian(version=None):
+    """Instala o app Obsidian: .deb (Debian/Ubuntu), Homebrew (macOS) ou winget (Windows)."""
+    if obsidian_installed():
+        ok("Obsidian já instalado")
+        return True
+    if sys.platform == "darwin":
+        cmd = ["brew", "install", "--cask", "obsidian"]
+    elif WINDOWS:
+        cmd = ["winget", "install", "-e", "--id", "Obsidian.Obsidian", "--accept-package-agreements", "--accept-source-agreements"]
+    elif shutil.which("dpkg"):
+        import tempfile
+        import urllib.request
+        tag = f"tags/v{version}" if version else "latest"
+        rel = json.loads(urllib.request.urlopen(f"https://api.github.com/repos/obsidianmd/obsidian-releases/releases/{tag}", timeout=60).read())
+        deb = next((x["browser_download_url"] for x in rel["assets"] if x["name"].endswith("_amd64.deb")), None)
+        if not deb:
+            warn("pacote .deb não encontrado na release; instale em https://obsidian.md/download")
+            return False
+        dst = Path(tempfile.mkdtemp()) / deb.rsplit("/", 1)[1]
+        dst.write_bytes(urllib.request.urlopen(deb, timeout=300).read())
+        cmd = ["sudo", "apt-get", "install", "-y", str(dst)]
+    else:
+        warn("instale o Obsidian em https://obsidian.md/download (AppImage ou Flatpak)")
+        return False
+    if not shutil.which(cmd[0]):
+        warn(f"'{cmd[0]}' não encontrado; instale o Obsidian em https://obsidian.md/download")
+        return False
+    rc = subprocess.call(cmd)
+    (ok if rc == 0 else warn)(f"Obsidian {'instalado' if rc == 0 else 'não instalado'} ({' '.join(cmd[:3])})")
+    return rc == 0
+
+
 def git(vault, *args):
     return subprocess.run(["git", "-C", str(vault), *args], capture_output=True, text=True)
 
@@ -107,6 +150,8 @@ def main():
     ap.add_argument("--skip-extensions", action="store_true")
     ap.add_argument("--force-obsidian-config", action="store_true")
     ap.add_argument("--no-agents", action="store_true")
+    ap.add_argument("--install-obsidian", action="store_true", help="instala o app Obsidian se ausente")
+    ap.add_argument("--obsidian-version", help="versão do app (ex.: 1.14.4); padrão: a mais recente")
     a = ap.parse_args()
 
     vault = Path(a.vault).expanduser().resolve()
@@ -123,6 +168,10 @@ def main():
     if "node" in missing:
         warn("Sem node o MCP server não roda. As demais ferramentas funcionam.")
     make_executable()
+    if a.install_obsidian:
+        install_obsidian(a.obsidian_version)
+    elif not obsidian_installed():
+        warn("app Obsidian não encontrado. Use --install-obsidian ou instale em https://obsidian.md/download")
 
     say("2/9", "Configuração")
     vaultcfg.USER_CONFIG.parent.mkdir(parents=True, exist_ok=True)

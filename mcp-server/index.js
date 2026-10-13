@@ -433,7 +433,7 @@ function handleOpenInGui({ path: targetPath }) {
 
 function handleValidateVault() {
     try {
-        const out = execFileSync(pythonCmd()[0], [...pythonCmd().slice(1), path.join(REPO_ROOT, "bin", "vault-validate"), VAULT_ROOT], {
+        const out = execFileSync(pythonCmd()[0], [...pythonCmd().slice(1), "-X", "utf8", path.join(REPO_ROOT, "bin", "vault-validate"), VAULT_ROOT], {
             encoding: "utf8",
             timeout: 10000
         });

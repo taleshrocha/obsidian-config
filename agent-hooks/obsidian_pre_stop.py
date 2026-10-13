@@ -27,14 +27,14 @@ def sync_vault(vault_dir: Path):
     sync_agents_bin = REPO / "bin" / "sync-agents"
 
     if sync_agents_bin.is_file() and os.access(sync_agents_bin, os.X_OK):
-        subprocess.run([sys.executable, str(sync_agents_bin), "--quiet"], capture_output=True, text=True, timeout=15)
+        subprocess.run([sys.executable, "-X", "utf8", str(sync_agents_bin), "--quiet"], capture_output=True, text=True, timeout=15)
 
     # 2. Validate vault integrity
     validator_bin = REPO / "bin" / "vault-validate"
 
     if validator_bin.is_file() and os.access(validator_bin, os.X_OK):
         res = subprocess.run(
-            [sys.executable, str(validator_bin), str(vault_dir)],
+            [sys.executable, "-X", "utf8", str(validator_bin), str(vault_dir)],
             capture_output=True,
             text=True,
             timeout=20
@@ -103,14 +103,14 @@ def sync_shared_vaults(vault_dir: Path):
         validator = REPO / "bin" / "vault-validate"
         if (shared / ".vault" / "config.json").is_file():
             env_m = dict(os.environ, OBSIDIAN_VAULT_PATH=str(shared))
-            res = subprocess.run([sys.executable, str(validator), str(shared)], env=env_m,
+            res = subprocess.run([sys.executable, "-X", "utf8", str(validator), str(shared)], env=env_m,
                                  capture_output=True, text=True, timeout=20)
             if res.returncode != 0:
                 summary = res.stdout.strip() or res.stderr.strip()
                 return False, f"O vault compartilhado `{mount}` falhou na validação. Corrija antes de concluir:\n{summary}"
         guard = REPO / "bin" / "shared-vault-guard"
         if guard.is_file():
-            res = subprocess.run([sys.executable, str(guard), str(shared)], capture_output=True, text=True, timeout=20)
+            res = subprocess.run([sys.executable, "-X", "utf8", str(guard), str(shared)], capture_output=True, text=True, timeout=20)
             if res.returncode != 0:
                 return False, f"Conteúdo do vault pessoal vazou para `{mount}`. Remova antes de concluir:\n{res.stdout.strip()}"
         subprocess.run(["git", "-C", str(shared), "add", "-A"], capture_output=True, text=True, timeout=10)

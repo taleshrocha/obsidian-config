@@ -242,14 +242,14 @@ def check_shared_mounts(vault_dir):
         if (shared / ".vault" / "config.json").is_file():
             env_m = os.environ.copy()
             env_m["OBSIDIAN_VAULT_PATH"] = str(shared)
-            res = subprocess.run([sys.executable, str(Path(__file__).resolve()), str(shared)], capture_output=True, text=True, env=env_m)
+            res = subprocess.run([sys.executable, "-X", "utf8", str(Path(__file__).resolve()), str(shared)], capture_output=True, text=True, env=env_m)
             if res.returncode != 0:
                 errors.append(f"{m}: vault-validate do mount falhou:")
                 errors += [f"    {l}" for l in res.stdout.splitlines() if l.strip().startswith(("-", "✗"))]
         if guard.is_file():
             env = os.environ.copy()
             env["OBSIDIAN_VAULT_PATH"] = str(vault_dir)
-            res = subprocess.run([sys.executable, str(guard), str(shared)], capture_output=True, text=True, env=env)
+            res = subprocess.run([sys.executable, "-X", "utf8", str(guard), str(shared)], capture_output=True, text=True, env=env)
             if res.returncode != 0:
                 errors += [f"    {l}" for l in res.stdout.splitlines() if l.strip()]
     return errors
@@ -331,7 +331,7 @@ def check_agent_sync(vault_dir):
     
     env = os.environ.copy()
     env["OBSIDIAN_VAULT_PATH"] = str(vault_dir)
-    res = subprocess.run([sys.executable, str(sync_agents_bin), "--check-vault-only"], env=env, capture_output=True, text=True)
+    res = subprocess.run([sys.executable, "-X", "utf8", str(sync_agents_bin), "--check-vault-only"], env=env, capture_output=True, text=True)
     if res.returncode != 0:
         msg = res.stdout.strip() or res.stderr.strip()
         lines = [line.strip() for line in msg.splitlines() if line.strip()]

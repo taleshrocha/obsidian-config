@@ -69,7 +69,7 @@ def local_scan(repo):
         return failed
     for hook in sorted(LOCAL_DIR.iterdir()):
         if hook.suffix == ".py":
-            rc = subprocess.call([sys.executable, str(hook), str(repo)])
+            rc = subprocess.call([sys.executable, "-X", "utf8", str(hook), str(repo)])
         elif os.access(hook, os.X_OK):
             rc = subprocess.call([str(hook), str(repo)])
         else:

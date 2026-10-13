@@ -67,7 +67,7 @@ def link_tool(name, target):
     d = bin_dir()
     d.mkdir(parents=True, exist_ok=True)
     if WINDOWS:
-        (d / f"{name}.cmd").write_text(f'@"{sys.executable}" "{target}" %*\r\n', encoding="utf-8")
+        (d / f"{name}.cmd").write_text(f'@"{sys.executable}" -X utf8 "{target}" %*\r\n', encoding="utf-8")
         return
     dst = d / name
     if dst.is_symlink() or dst.exists():
@@ -176,7 +176,7 @@ def main():
                 shutil.copy2(f, dst)
         ok(".obsidian base aplicado (existentes preservados; --force-obsidian-config sobrescreve)")
     if not a.skip_extensions:
-        subprocess.call([sys.executable, str(REPO / "lib" / "extensions.py"), str(REPO / "obsidian" / "extensions.json"), str(obs)])
+        subprocess.call([sys.executable, "-X", "utf8", str(REPO / "lib" / "extensions.py"), str(REPO / "obsidian" / "extensions.json"), str(obs)])
     app_cfg = obsidian_app_config()
     app_cfg.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -230,10 +230,10 @@ def main():
 
     say("8/9", "Agentes de IA")
     if a.no_agents:
-        subprocess.call([sys.executable, str(REPO / "bin" / "sync-agents"), "--vault-only", "--quiet"])
+        subprocess.call([sys.executable, "-X", "utf8", str(REPO / "bin" / "sync-agents"), "--vault-only", "--quiet"])
         ok("só arquivos de agente na raiz do vault (--no-agents)")
     else:
-        subprocess.call([sys.executable, str(REPO / "bin" / "sync-agents"), "--quiet"])
+        subprocess.call([sys.executable, "-X", "utf8", str(REPO / "bin" / "sync-agents"), "--quiet"])
         ok("instruções, skills e MCP sincronizados (Claude Code, Gemini CLI, Codex)")
         claude = shutil.which("claude")
         if claude:
@@ -255,7 +255,7 @@ def main():
             schemas.mkdir(parents=True, exist_ok=True)
             for f in list((REPO / "mcp-server" / "schemas").glob("*.json")) + [REPO / "mcp-server" / "instructions.md"]:
                 shutil.copy2(f, schemas / f.name)
-            cmd = lambda s: f'"{sys.executable}" "{REPO / "agent-hooks" / s}"'  # noqa: E731
+            cmd = lambda s: f'"{sys.executable}" -X utf8 "{REPO / "agent-hooks" / s}"'  # noqa: E731
             (gem / "config" / "hooks.json").write_text(json.dumps({"obsidian-vault-lifecycle": {
                 "PreInvocation": [{"type": "command", "command": cmd("obsidian_session_init.py"), "timeout": 10}],
                 "Stop": [{"type": "command", "command": cmd("obsidian_pre_stop.py"), "timeout": 20}],
@@ -263,7 +263,7 @@ def main():
             ok("Gemini / Antigravity: schemas MCP e lifecycle hooks")
 
     say("9/9", "Validação")
-    rc = subprocess.call([sys.executable, str(REPO / "bin" / "vault-validate"), str(vault)])
+    rc = subprocess.call([sys.executable, "-X", "utf8", str(REPO / "bin" / "vault-validate"), str(vault)])
     print("\nPronto." if rc == 0 else "\nA validação reportou problemas. Veja a saída acima.")
     return rc
 

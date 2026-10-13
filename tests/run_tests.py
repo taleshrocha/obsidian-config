@@ -32,7 +32,8 @@ def write(path, text):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="obsidian-config-test-"))
+        # resolve(): no Windows o temp vem em formato curto (RUNNER~1)
+        self.tmp = Path(tempfile.mkdtemp(prefix="obsidian-config-test-")).resolve()
         self.home = self.tmp / "home"
         self.home.mkdir()
         self.env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home),
@@ -46,8 +47,8 @@ class Base(unittest.TestCase):
         env = dict(self.env)
         if vault:
             env["OBSIDIAN_VAULT_PATH"] = str(vault)
-        return subprocess.run([sys.executable, str(BIN / tool), *map(str, args)], env=env,
-                              capture_output=True, text=True, encoding="utf-8", input=input_text)
+        return subprocess.run([sys.executable, "-X", "utf8", str(BIN / tool), *map(str, args)], env=env,
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", input=input_text)
 
     def make_vault(self, name="vault", **cfg):
         v = self.tmp / name
@@ -215,8 +216,8 @@ class TestAgentPolicy(Base):
     def test_install_creates_policy_and_rules_notes(self):
         v = self.tmp / "novo-pessoal"
         subprocess.run(["git", "init", "-q", str(v)], check=True)
-        r = subprocess.run([sys.executable, str(REPO / "install.py"), "--vault", str(v), "--skip-extensions"],
-                           env=self.env, capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "install.py"), "--vault", str(v), "--skip-extensions"],
+                           env=self.env, capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue((v / "07 - Infrastructure" / "AI" / "Shared Agent Policy.md").is_file())
         self.assertTrue((v / "07 - Infrastructure" / "AI" / "Agent Rules.md").is_file())
@@ -229,8 +230,8 @@ class TestInstallAndGate(Base):
     def test_install_fresh_vault(self):
         v = self.tmp / "novo"
         subprocess.run(["git", "init", "-q", str(v)], check=True)
-        r = subprocess.run([sys.executable, str(REPO / "install.py"), "--vault", str(v), "--skip-extensions", "--no-agents"],
-                           env=self.env, capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "install.py"), "--vault", str(v), "--skip-extensions", "--no-agents"],
+                           env=self.env, capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         shim = self.home / ".local" / "bin" / ("vault.cmd" if os.name == "nt" else "vault")
         self.assertTrue(shim.exists() or shim.is_symlink())
@@ -242,14 +243,14 @@ class TestInstallAndGate(Base):
         subprocess.run(["git", "init", "-q", str(v)], check=True)
         subprocess.run(["git", "-C", str(v), "add", "-A"], check=True)
         subprocess.run(["git", "-C", str(v), "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x"], check=True)
-        r = subprocess.run([sys.executable, str(REPO / "install.py"), "--vault", str(v), "--skip-extensions"],
-                           env=self.env, capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "install.py"), "--vault", str(v), "--skip-extensions"],
+                           env=self.env, capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         status = subprocess.run(["git", "-C", str(v), "status", "--porcelain"], capture_output=True, text=True).stdout
         self.assertEqual(status.strip(), "", status)
 
     def test_privacy_gate_clean(self):
-        r = subprocess.run([sys.executable, str(REPO / "tools" / "privacy_gate.py")], env=self.env,
+        r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "tools" / "privacy_gate.py")], env=self.env,
                            capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stdout)
 

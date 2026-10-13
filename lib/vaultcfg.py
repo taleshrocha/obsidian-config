@@ -15,6 +15,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows: chamadas diretas (sem -X utf8) ainda imprimem em UTF-8.
+if os.name == "nt" and not sys.flags.utf8_mode:
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
 USER_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "obsidian-config" / "config.json"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

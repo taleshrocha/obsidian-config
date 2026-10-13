@@ -26,19 +26,19 @@ def main():
     root = Path(git("rev-parse", "--show-toplevel").stdout.strip() or os.getcwd())
     os.environ["OBSIDIAN_VAULT_PATH"] = str(root)
     cfg = vaultcfg.load(root)
-    py = sys.executable
+    py = [sys.executable, "-X", "utf8"]
 
     if cfg.get("generate_agent_files", True):
         staged = git("diff", "--cached", "--name-only").stdout
         rules = (Path(cfg["policy_note"]).name, Path(cfg["agent_rules_note"]).name)
-        out_of_sync = subprocess.call([py, str(REPO / "bin" / "sync-agents"), "--check-vault-only", "--quiet"]) != 0
+        out_of_sync = subprocess.call([*py, str(REPO / "bin" / "sync-agents"), "--check-vault-only", "--quiet"]) != 0
         if any(r in staged for r in rules) or out_of_sync:
             print("[pre-commit] Regenerando instruções dos agentes...")
-            subprocess.call([py, str(REPO / "bin" / "sync-agents"), "--quiet"])
+            subprocess.call([*py, str(REPO / "bin" / "sync-agents"), "--quiet"])
             git("add", "CLAUDE.md", "GEMINI.md", "AGENTS.md")
 
     print("[pre-commit] Validando o vault...")
-    if subprocess.call([py, str(REPO / "bin" / "vault-validate"), str(root)]) != 0:
+    if subprocess.call([*py, str(REPO / "bin" / "vault-validate"), str(root)]) != 0:
         print("\n[pre-commit] Commit abortado: validação do vault falhou.")
         return 1
 
@@ -46,7 +46,7 @@ def main():
     if local.is_dir():
         for hook in sorted(local.iterdir()):
             if hook.suffix == ".py":
-                rc = subprocess.call([py, str(hook), str(root)])
+                rc = subprocess.call([*py, str(hook), str(root)])
             elif os.access(hook, os.X_OK):
                 rc = subprocess.call([str(hook), str(root)])
             else:

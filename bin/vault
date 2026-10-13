@@ -69,7 +69,7 @@ def show_help():
 
 def run_tool(name, *args):
     """Roda outra ferramenta deste repositório com o mesmo interpretador."""
-    return subprocess.call([sys.executable, str(BIN_DIR / name), *args])
+    return subprocess.call([sys.executable, "-X", "utf8", str(BIN_DIR / name), *args])
 
 
 def walk_md():

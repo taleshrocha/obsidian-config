@@ -57,6 +57,61 @@ function resolveAuthor() {
 }
 const AUTHOR = resolveAuthor();
 
+// Vault de time (shared_repo): antes de cada ferramenta, traz o que os colegas publicaram.
+// fetch + merge --ff-only, no máximo a cada `auto_pull_ttl_seconds`. Nunca faz rebase nem
+// mexe em commit local: se houver divergência ou falha de rede, avisa na saída da ferramenta.
+function httpsAuthArgs(remoteUrl) {
+    // Regras git_https_auth do próprio vault ou do vault pessoal que o monta (pastas acima).
+    const rules = [...(VAULT_CFG.git_https_auth || [])];
+    for (let dir = path.dirname(VAULT_ROOT); dir !== path.dirname(dir); dir = path.dirname(dir)) {
+        try {
+            rules.push(...(JSON.parse(fs.readFileSync(path.join(dir, ".vault", "config.json"), "utf8")).git_https_auth || []));
+            break;
+        } catch (_) {}
+    }
+    for (const rule of rules) {
+        const tokenFile = (rule.token_file || "").replace(/^~(?=$|[\\/])/, process.env.HOME || "");
+        if (!rule.host_contains || !remoteUrl.includes(rule.host_contains) || !fs.existsSync(tokenFile)) continue;
+        const token = fs.readFileSync(tokenFile, "utf8").trim();
+        const basic = Buffer.from(`${rule.user || "oauth2"}:${token}`).toString("base64");
+        return ["-c", `http.extraheader=Authorization: Basic ${basic}`];
+    }
+    return [];
+}
+
+const AUTO_PULL = VAULT_CFG.auto_pull ?? Boolean(VAULT_CFG.shared_repo);
+const AUTO_PULL_TTL_MS = (Number(process.env.VAULT_AUTO_PULL_TTL_SECONDS) || VAULT_CFG.auto_pull_ttl_seconds || 300) * 1000;
+let lastPullAt = 0;
+let pullWarning = "";
+
+function autoPull() {
+    if (!AUTO_PULL || !fs.existsSync(path.join(VAULT_ROOT, ".git"))) return "";
+    if (Date.now() - lastPullAt < AUTO_PULL_TTL_MS) return pullWarning;
+    lastPullAt = Date.now();
+    pullWarning = tryPull();
+    return pullWarning;
+}
+
+function tryPull() {
+    const git = (args, timeout = 5000) =>
+        execFileSync("git", ["-C", VAULT_ROOT, ...args], { encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const remote = (VAULT_CFG.git && VAULT_CFG.git.remote) || "origin";
+    const branch = (VAULT_CFG.git && VAULT_CFG.git.branch) || "main";
+    try {
+        const url = git(["remote", "get-url", remote]);
+        git([...httpsAuthArgs(url), "fetch", "--quiet", remote, branch], 20000);
+        const [ahead, behind] = git(["rev-list", "--left-right", "--count", `HEAD...${remote}/${branch}`]).split(/\s+/).map(Number);
+        if (!behind) return "";
+        if (ahead) return `[aviso] Vault do time divergiu de ${remote}/${branch} (${ahead} local, ${behind} remoto). Rode \`git pull --rebase\` antes de confiar no resultado.\n\n`;
+        git(["merge", "--ff-only", "--quiet", `${remote}/${branch}`], 10000);
+        return "";
+    } catch (err) {
+        // Só stderr: err.message repete a linha de comando, que leva o header com o token.
+        const msg = String(err.stderr || "").split("\n").find(l => l.trim()) || (err.code === "ETIMEDOUT" ? "timeout" : "erro do git");
+        return `[aviso] Não consegui atualizar o vault do time (${msg.trim()}). O resultado pode estar desatualizado.\n\n`;
+    }
+}
+
 function pythonCmd() {
     // python3 (Linux/macOS), python ou py -3 (Windows)
     for (const cand of [["python3"], ["python"], ["py", "-3"]]) {
@@ -684,6 +739,7 @@ rl.on("line", line => {
         const toolName = params?.name;
         const toolArgs = params?.arguments || {};
         try {
+            const syncWarning = autoPull();
             let output;
             switch (toolName) {
                 case "search_vault":
@@ -740,7 +796,7 @@ rl.on("line", line => {
                     content: [
                         {
                             type: "text",
-                            text: output
+                            text: syncWarning + output
                         }
                     ]
                 }

@@ -27,7 +27,7 @@ O servidor MCP do vault oferece 12 ferramentas:
 - `open_in_gui(path)`: abre a nota no Obsidian aberto pelo usuário.
 - `validate_vault()`: integridade da estrutura, links quebrados e segredos.
 
-Vaults de time montados no vault principal têm um servidor MCP próprio, com o nome definido em `mcp_name` no `.vault/config.json` de cada um.
+Vaults de time montados no vault principal têm um servidor MCP próprio, com o nome definido em `mcp_name` no `.vault/config.json` de cada um. Esse MCP faz `fetch` e fast-forward antes de cada ferramenta (TTL de 5 min) e avisa na saída se não conseguir. Antes de ler um vault de time direto no disco (`Read`, `cat`, `grep`), rode `git pull --rebase` nele: outro dev pode ter publicado há minutos.
 
 ### Padrão LLM-Wiki de Karpathy (3 camadas e 3 operações)
 

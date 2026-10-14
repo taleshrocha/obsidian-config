@@ -78,10 +78,12 @@ Para desfazer a instalação sem tocar no conteúdo do vault: `python3 uninstall
 | `change_id_author` | `false` | IDs `CHG-YYYY-MM-DD-<autor>-NNN` (vault de time) |
 | `journal` | `13 - Meetings`, sem autor | Diário: `dir`, `per_author`, `type` |
 | `shared_repo` | `false` | Vault de time: o install não escreve config do Obsidian, templates nem notas de política no repositório; só baixa plugins |
+| `auto_pull` | igual a `shared_repo` | O MCP faz `fetch` + `merge --ff-only` antes de cada ferramenta. Não faz rebase: se houver commit local divergente ou falha de rede, avisa na saída |
+| `auto_pull_ttl_seconds` | `300` | Intervalo mínimo entre dois fetches do MCP. `VAULT_AUTO_PULL_TTL_SECONDS` sobrepõe |
 | `privacy_checks` | `false` | Bloqueia e-mail, telefone, caminho de home, senha literal e Dataview sem escopo |
 | `shared_mounts` | `[]` | Vaults de time montados como subpasta: `{"path", "organization", "roster"}` |
 | `git` | `origin`/`main`, push automático | Usado por `vault sync` e pelo hook de encerramento |
-| `git_https_auth` | `[]` | Header HTTPS por host, com token lido de arquivo. Nunca grava credencial |
+| `git_https_auth` | `[]` | Header HTTPS por host, com token lido de arquivo. Nunca grava credencial. O MCP de um vault de time usa as regras dele e, se não houver, as do vault pessoal que o monta |
 | `default_change_server` | `""` | Padrão de `vault change` |
 | `guard` | `allow: []`, `common_org_words: []` | Ajustes do guard |
 

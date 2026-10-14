@@ -170,6 +170,26 @@ class TestMcp(Base):
         self.assertIn("dev-teste-001", out[1]["result"]["content"][0]["text"])
         self.assertTrue(list((v / "13 - Journal" / "dev-teste").glob("*.md")))
 
+    def test_shared_repo_pulls_before_tool(self):
+        git = lambda *a, cwd: subprocess.run(["git", *a], cwd=cwd, env=self.env, check=True, capture_output=True)
+        origin = self.tmp / "origin.git"
+        git("init", "--bare", "-b", "main", str(origin), cwd=self.tmp)
+        v = self.make_vault(name="team", shared_repo=True, mcp_name="team-vault")
+        git("init", "-b", "main", cwd=v)
+        git("-c", "user.name=a", "-c", "user.email=a@x", "commit", "--allow-empty", "-m", "init", cwd=v)
+        git("remote", "add", "origin", str(origin), cwd=v)
+        git("push", "-u", "origin", "main", cwd=v)
+        colega = self.tmp / "colega"
+        git("clone", str(origin), str(colega), cwd=self.tmp)
+        write(colega / "10 - Procedures" / "Novo.md", "---\ntype: procedure\n---\nchave-recem-publicada\n")
+        git("add", "-A", cwd=colega)
+        git("-c", "user.name=b", "-c", "user.email=b@x", "commit", "-m", "novo", cwd=colega)
+        git("push", cwd=colega)
+        out = self.call(v, {"name": "search_vault", "arguments": {"query": "chave-recem-publicada"}})
+        text = out[1]["result"]["content"][0]["text"]
+        self.assertIn("Novo.md", text)
+        self.assertNotIn("[aviso]", text)
+
 
 class TestGuard(Base):
     def test_detects_personal_terms_in_mount(self):

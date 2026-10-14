@@ -121,8 +121,8 @@ def get_base_agent_instructions(agent_name: str, policy_hash: str = None) -> str
     }.items():
         text = text.replace("{{" + key + "}}", val)
     text = text.replace("{{VAULT_DIR}}", str(VAULT_DIR))
-    if agent_name == "Codex":
-        # Codex não resolve @imports: as políticas vão embutidas no arquivo.
+    if agent_name == "Codex" or "Gemini" in agent_name:
+        # Codex e Antigravity CLI não resolvem @imports: as políticas vão embutidas no arquivo.
         text = text.rstrip() + "\n\n---\n\n" + strip_frontmatter((REPO / "agents" / "policy.md").read_text(encoding="utf-8"))
         local = POLICY_FILE if POLICY_FILE.is_file() else (
             VAULT_DIR / "AGENTS.md" if not CFG.get("generate_agent_files", True) else None)

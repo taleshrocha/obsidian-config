@@ -266,6 +266,9 @@ class TestAgentPolicy(Base):
         codex = (self.home / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("Loop engineering", codex)  # política base embutida para o Codex
         self.assertIn("# Contrato", codex)
+        gemini = (self.home / ".gemini" / "GEMINI.md").read_text(encoding="utf-8")
+        self.assertIn("Loop engineering", gemini)  # Antigravity CLI também não resolve @import
+        self.assertIn("# Contrato", gemini)
 
     def test_install_creates_policy_and_rules_notes(self):
         v = self.tmp / "novo-pessoal"

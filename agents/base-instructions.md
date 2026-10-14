@@ -81,7 +81,7 @@ Para não inchar o contexto nem aumentar a latência:
    - mantenha o frontmatter YAML das notas atualizado; as tabelas Dataview dos dashboards em `00 - Dashboard/` se atualizam sozinhas;
    - atualize os mapas de arquitetura com `vault canvas` (ou `generate-canvas`).
 5. **CLI unificada (`vault`):** `status`, `search`, `meta`, `outline`, `section`, `links`, `new`, `open`, `change`, `log`, `canvas`, `health`, `validate`, `sync`, `sync-agents`.
-6. **Ferramentas do desenvolvedor (`16 - Tools/`):** linters, suítes de qualidade e diagnósticos ficam em `16 - Tools/<Org>/`.
+6. **Ferramentas do desenvolvedor (`16 - Tools/`):** linters, suítes de qualidade e diagnósticos ficam em `16 - Tools/.<Org>/` (pastas com `.` para isolamento do Obsidian; catalogadas em `16 - Tools/README.md`).
 7. **Zero segredos:** nunca escreva senha, chave privada, token de API ou valor real de `.env` em nota. Use `[REDACTED]`.
 8. **Validação e hooks:** antes de encerrar uma tarefa que alterou o vault, rode `validate_vault` (ou `vault validate`) e garanta 0 links quebrados e 0 erros.
 9. **Commit e push obrigatórios ao encerrar (OBRIGATÓRIO):**

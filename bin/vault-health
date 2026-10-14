@@ -148,7 +148,9 @@ def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False)
 
     # 4. Optional validator check
     if run_validation:
-        validator_script = vault_dir / "16 - Tools" / "Cross-Organization" / "bin" / "validate-obsidian-work-vault"
+        validator_script = vault_dir / "16 - Tools" / ".Cross-Organization" / "bin" / "validate-obsidian-work-vault"
+        if not validator_script.is_file():
+            validator_script = REPO_ROOT / "bin" / "vault-validate"
         if validator_script.is_file() and os.access(validator_script, os.X_OK):
             try:
                 res = subprocess.run([str(validator_script), str(vault_dir)], capture_output=True, text=True, timeout=15)

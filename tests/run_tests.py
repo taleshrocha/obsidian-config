@@ -277,7 +277,9 @@ class TestAgentPolicy(Base):
         self.assertTrue((v / "07 - Infrastructure" / "AI" / "Agent Rules.md").is_file())
         text = (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("Política local (prevalece", text)
-        self.assertIn("Shared Agent Policy.md", text)
+        # Import fora de crase (crase desativa o @import) e com espaços escapados.
+        self.assertIn("Shared\\ Agent\\ Policy.md", text)
+        self.assertNotIn("`@", text)
 
 
 class TestInstallAndGate(Base):

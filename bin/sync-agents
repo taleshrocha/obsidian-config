@@ -89,12 +89,17 @@ def private_rules() -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def import_ref(path) -> str:
+    """@import fora de crase (crase desativa o import) e com espaços escapados."""
+    return "@" + str(path).replace(" ", "\\ ")
+
+
 def local_policy_line() -> str:
     """Política local: a nota do vault ou, em vault de time, o AGENTS.md dele."""
     if POLICY_FILE.is_file():
-        return f"Política local (prevalece sobre a base em caso de conflito): `@{POLICY_FILE}`"
+        return f"Política local (prevalece sobre a base em caso de conflito): {import_ref(POLICY_FILE)}"
     if not CFG.get("generate_agent_files", True) and (VAULT_DIR / "AGENTS.md").is_file():
-        return f"Política local (contrato do vault de time, prevalece sobre a base em caso de conflito): `@{VAULT_DIR / 'AGENTS.md'}`"
+        return f"Política local (contrato do vault de time, prevalece sobre a base em caso de conflito): {import_ref(VAULT_DIR / 'AGENTS.md')}"
     return "Política local: nenhuma (crie a nota configurada em `policy_note` para regras específicas deste vault)."
 
 

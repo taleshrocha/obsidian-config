@@ -8,7 +8,7 @@ Você é o {{AGENT_NAME}} operando neste sistema.
 A fonte canônica de verdade sobre infraestrutura, servidores, serviços, aplicações, projetos, procedimentos e decisões de arquitetura de todas as organizações ({{ORGANIZATIONS}}) é o **vault Obsidian** em:
 `{{VAULT_DIR}}`
 
-Política base: `@{{CONFIG_DIR}}/agents/policy.md`
+Política base: @{{CONFIG_DIR}}/agents/policy.md
 {{LOCAL_POLICY}}
 
 ### Ferramentas MCP (servidor `obsidian-vault`)

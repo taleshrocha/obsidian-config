@@ -358,6 +358,20 @@ class TeamVaultAndAuthTests(Base):
         self.assertEqual(vaultcfg.resolve_token({"token_file": str(tok_file)}, "https://git.example.com/"), "xyz")
         self.assertEqual(vaultcfg.https_auth_args({"git_https_auth": [rule]}, "https://outro.example.com/"), [])
 
+    def test_auth_setup_check_reports_missing_and_ready(self):
+        v = self.make_vault(git_https_auth=[{"host_contains": "git.example.com", "token_env": "TESTE_TOKEN_SETUP"}])
+        env = dict(self.env)
+        r = subprocess.run([sys.executable, "-X", "utf8", str(BIN / "vault"), "auth", "setup", "--check"],
+                           env=dict(env, OBSIDIAN_VAULT_PATH=str(v), GIT_TERMINAL_PROMPT="0"),
+                           capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("sem token", r.stdout)
+        r = subprocess.run([sys.executable, "-X", "utf8", str(BIN / "vault"), "auth", "setup", "--check"],
+                           env=dict(env, OBSIDIAN_VAULT_PATH=str(v), TESTE_TOKEN_SETUP="abc"),
+                           capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("variável TESTE_TOKEN_SETUP", r.stdout)
+
     def test_agent_backup_snapshots_only_on_change_and_skips_secrets(self):
         write(self.home / ".claude" / "CLAUDE.md", "regras\n")
         write(self.home / ".claude" / ".credentials.json", "{}")

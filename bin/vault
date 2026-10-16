@@ -51,7 +51,7 @@ COMMANDS = [
     ("sync-agents", "Instruções, skills e MCP dos agentes"),
     ("sync", "Valida, comita e envia o vault"),
     ("backup [--list|--force|--restore f]", "Snapshot das configs de ~/.claude, ~/.gemini, ~/.agent(s), ~/.codex"),
-    ("auth <status|set> [host]", "Token Git no cofre do sistema (credential helper), sem arquivo fixo"),
+    ("auth <setup|status|set>", "Credenciais Git: setup guiado, token no cofre do sistema, sem arquivo fixo"),
     ("help", "Esta ajuda"),
 ]
 
@@ -279,20 +279,99 @@ def cmd_new(args):
     print(c(GREEN, f"✓ Nota criada a partir de {template}:") + f" [[{rel(dest)}]]")
 
 
+def _token_source(rule, url):
+    """Onde o token está hoje: variável, arquivo, cofre do git ou None."""
+    if rule.get("token_env") and os.environ.get(rule["token_env"], "").strip():
+        return "variável " + rule["token_env"]
+    if rule.get("token_file") and Path(rule["token_file"]).expanduser().is_file() \
+            and Path(rule["token_file"]).expanduser().read_text(encoding="utf-8").strip():
+        return "arquivo"
+    return "cofre do git" if vaultcfg._credential_helper_token(url, rule.get("user", "oauth2")) else None
+
+
+def _suggest_helper():
+    if sys.platform.startswith("win"):
+        return "manager"
+    if sys.platform == "darwin":
+        return "osxkeychain"
+    for d in ("/usr/lib/git-core", "/usr/libexec/git-core", "/usr/lib/git"):
+        if (Path(d) / "git-credential-libsecret").is_file():
+            return "libsecret"
+    return None
+
+
+def _git_cfg(*a):
+    return subprocess.run(["git", "config", *a], capture_output=True, text=True).stdout.strip()
+
+
+def cmd_auth_setup(args):
+    """Prepara as credenciais Git do vault. Sem TTY (agente) só diagnostica e diz o que o operador deve rodar."""
+    check = "--check" in args
+    interactive = sys.stdin.isatty() and not check
+    rules = CFG.get("git_https_auth", [])
+    missing = 0
+    print(c(BOLD, "1. Cofre de credenciais do git"))
+    helper = _git_cfg("--get", "credential.helper")
+    if helper:
+        print(c(GREEN, f"  ✓ credential.helper = {helper}"))
+    else:
+        sug = _suggest_helper()
+        if not sug:
+            print(c(YELLOW, "  ! Nenhum credential helper seguro disponível neste Linux. Instale git-credential-libsecret "
+                            "(pacote libsecret-tools/git) ou use token_env/token_file na regra git_https_auth."))
+        elif interactive and input(f"  Nenhum helper configurado. Ativar '{sug}' (git config --global)? [S/n] ").strip().lower() in ("", "s", "y"):
+            _git_cfg("--global", "credential.helper", sug)
+            print(c(GREEN, f"  ✓ credential.helper = {sug}"))
+        else:
+            print(c(YELLOW, f"  ! Sem helper. Ative com: git config --global credential.helper {sug}"))
+    print(c(BOLD, "\n2. Tokens por host (git_https_auth)"))
+    if not rules:
+        print(c(YELLOW, "  Nenhuma regra. Adicione ao .vault/config.json, por exemplo:"))
+        print('    "git_https_auth": [{"host_contains": "git.example.com", "user": "oauth2"}]')
+    for rule in rules:
+        host = rule.get("host_contains", "")
+        url = f"https://{host}/"
+        src = _token_source(rule, url)
+        if src:
+            print(c(GREEN, f"  ✓ {host}: token disponível ({src})"))
+            if src != "cofre do git" and interactive and _git_cfg("--get", "credential.helper") and \
+                    input("    Guardar também no cofre do git, para não depender deste arquivo/variável? [s/N] ").strip().lower() in ("s", "y"):
+                tok = vaultcfg.resolve_token(rule, url)
+                print(c(GREEN, "    ✓ guardado") if vaultcfg.store_credential(url, tok, rule.get("user", "oauth2")) else c(RED, "    ✗ falhou"))
+            continue
+        if interactive:
+            import getpass
+            print(f"  {host}: sem token. Crie um token de acesso pessoal no GitLab (escopos read_repository e write_repository).")
+            tok = getpass.getpass("    Cole o token (não aparece na tela; Enter para pular): ").strip()
+            if tok and vaultcfg.store_credential(url, tok, rule.get("user", "oauth2")) and \
+                    vaultcfg._credential_helper_token(url, rule.get("user", "oauth2")):
+                print(c(GREEN, f"  ✓ {host}: token guardado e verificado"))
+                continue
+            print(c(RED, f"  ✗ {host}: token não guardado"))
+        else:
+            print(c(RED, f"  ✗ {host}: sem token"))
+        missing += 1
+    if missing:
+        print(c(BOLD, "\nPróximo passo (rode você mesmo num terminal, o agente não deve ver o token):"))
+        print("  vault auth setup")
+        return 1
+    print(c(GREEN, "\nCredenciais prontas."))
+    return 0
+
+
 def cmd_auth(args):
-    """vault auth status | vault auth set <host_contains>: token via cofre de credenciais do git."""
+    """vault auth setup [--check] | status | set <host>: token via cofre de credenciais do git."""
     sub = args[0] if args else "status"
     rules = CFG.get("git_https_auth", [])
+    if sub == "setup":
+        return cmd_auth_setup(args[1:])
     if sub == "status":
         if not rules:
             print("Nenhuma regra git_https_auth configurada.")
         for rule in rules:
             host = rule.get("host_contains", "")
-            url = f"https://{host}/"
-            tok = vaultcfg.resolve_token(rule, url)
-            via = ("variável " + rule["token_env"]) if rule.get("token_env") and os.environ.get(rule["token_env"]) else \
-                  ("arquivo" if rule.get("token_file") and Path(rule["token_file"]).expanduser().is_file() else "cofre do git")
-            print(f"{host}: " + (c(GREEN, f"token disponível ({via})") if tok else c(RED, "sem token. Rode: vault auth set " + host)))
+            src = _token_source(rule, f"https://{host}/")
+            print(f"{host}: " + (c(GREEN, f"token disponível ({src})") if src else c(RED, "sem token. Rode: vault auth setup")))
         return 0
     if sub == "set":
         need(args, 2, "vault auth set <host>")
@@ -305,8 +384,8 @@ def cmd_auth(args):
         if vaultcfg.store_credential(f"https://{host}/", token, rule.get("user", "oauth2")):
             print(c(GREEN, "✓ Token guardado no cofre de credenciais do git (Git Credential Manager, Keychain ou libsecret)."))
             return 0
-        sys.exit(c(RED, "Falha ao guardar. Configure um credential helper: git config --global credential.helper <manager|osxkeychain|libsecret>"))
-    sys.exit(c(RED, "Uso: vault auth <status|set> [host]"))
+        sys.exit(c(RED, "Falha ao guardar. Rode: vault auth setup"))
+    sys.exit(c(RED, "Uso: vault auth <setup [--check]|status|set <host>>"))
 
 
 def cmd_meta(args):

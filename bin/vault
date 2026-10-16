@@ -554,7 +554,8 @@ def cmd_log(args, quiet=False):
     if not f.exists():
         jtype = CFG["journal"].get("type", "meeting")
         who = vaultcfg.author(CFG) if CFG["journal"].get("per_author") else ""
-        title = f"Diário {who} {date_str}".replace("  ", " ") if who else f"Daily Log {date_str}"
+        shown = (vaultcfg.ensure_person(CFG) or who) if who else ""
+        title = f"Diário {shown} {date_str}".replace("  ", " ") if who else f"Daily Log {date_str}"
         author_line = f"author: {who}\n" if who else ""
         who_link = vaultcfg.author_link(CFG) if who else ""
         link_line = f"\nAutor: {who_link}\n" if who_link else ""

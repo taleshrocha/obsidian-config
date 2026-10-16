@@ -678,7 +678,7 @@ function handleAppendDailyLog({ content, heading = "Atividade do Agente IA" }) {
     const timeStr = `${hh}:${min}`;
 
     const journalBase = VAULT_CFG.journal.per_author
-        ? path.join(VAULT_ROOT, VAULT_CFG.journal.dir, AUTHOR)
+        ? path.join(VAULT_ROOT, VAULT_CFG.journal.dir, ensurePerson() || AUTHOR)
         : path.join(VAULT_ROOT, VAULT_CFG.journal.dir);
     const meetingsDir = path.join(journalBase, dateSub(VAULT_CFG.journal.dir, dateStr));
     fs.mkdirSync(meetingsDir, { recursive: true });
@@ -690,12 +690,12 @@ function handleAppendDailyLog({ content, heading = "Atividade do Agente IA" }) {
         const whoName = VAULT_CFG.journal.per_author ? ensurePerson() : "";
         prefix = `---
 type: ${VAULT_CFG.journal.type || "meeting"}
-title: Daily Log ${dateStr}
+title: ${VAULT_CFG.journal.per_author && whoName ? `Diário ${whoName} ${dateStr}` : `Daily Log ${dateStr}`}
 date: ${dateStr}
 ${VAULT_CFG.journal.per_author ? `author: ${AUTHOR}\n` : ""}status: completed
 ---
 
-# Daily Log · ${dateStr}
+# ${VAULT_CFG.journal.per_author && whoName ? `Diário · ${whoName} · ${dateStr}` : `Daily Log · ${dateStr}`}
 ${whoName ? `\nAutor: [[${whoName}]]\n` : ""}
 `;
     }

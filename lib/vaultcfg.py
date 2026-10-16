@@ -189,6 +189,7 @@ def find_person(cfg, slug):
     d = people_dir(cfg)
     if not d or not d.is_dir():
         return None
+    slug = slugify(slug)
     alias = cfg.get("layout", {}).get("people_aliases", {}).get(slug)
     if alias and (d / f"{alias}.md").is_file():
         return d / f"{alias}.md"
@@ -223,7 +224,10 @@ def person_note_text(cfg, name, slug, body="", role=""):
     body = body.strip() or "Resumo da atuação e das responsabilidades da pessoa no time."
     return (f"---\ntype: person\nname: {name}\norganization: {orgs[0] if orgs else ''}\nauthor: {slug}\n"
             f"role: {role}\nstatus: active\nlast_verified: {date.today().isoformat()}\n---\n\n# {name}\n\n"
-            f"## Visão Geral\n\n{body}\n\n## Documentos Relacionados\n\n"
+            f"## Visão Geral\n\n{body}\n\n## Identificadores\n\n"
+            f"- **Nome no git:** `{slug}`. Outros nomes do mesmo autor entram em `git_authors:` no frontmatter.\n"
+            f"- **Pasta do diário:** `{(cfg.get('journal') or {}).get('dir', '')}/{name}/`\n\n"
+            "## Documentos Relacionados\n\n"
             "Changes, diários e notas que citam esta pessoa aparecem no painel de backlinks do Obsidian.\n")
 
 
@@ -253,7 +257,7 @@ def journal_file(cfg, date_str):
     j = cfg["journal"]
     base = Path(cfg["vault_dir"]) / j["dir"]
     if j.get("per_author"):
-        base = base / author(cfg)
+        base = base / (ensure_person(cfg) or author(cfg))  # pasta com o nome da pessoa, não o slug do git
     sub = date_sub(cfg, j["dir"], date_str)
     return (base / sub if sub else base) / f"{date_str}.md"
 

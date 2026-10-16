@@ -129,7 +129,7 @@ Toda alteração feita no atendimento, no vault ou em repositório de projeto, �
 
 ## 12. Acesso Git a hosts privados
 
-- Para hosts listados em `git_https_auth` (`.vault/config.json`), use HTTPS com header dinâmico (`git -c http.extraheader=...`) e token lido do arquivo indicado. Nunca grave token em `.git/config`, nota, commit ou log.
+- Para hosts listados em `git_https_auth` (`.vault/config.json`), use HTTPS com header dinâmico (`git -c http.extraheader=...`). O token não tem caminho fixo: as ferramentas (`vault`, MCP, hooks) o resolvem na ordem variável de ambiente (`token_env`), arquivo (`token_file`) e cofre de credenciais do git (Git Credential Manager, Keychain, libsecret). Sem token, rode `vault auth set <host>`, que guarda no cofre do sistema sem expor o valor ao agente. `vault auth status` mostra o que está disponível. Nunca grave token em `.git/config`, nota, commit ou log, e nunca assuma o caminho `~/.config/...` de outra máquina.
 - Restrições de host (ex.: SSH proibido) ficam nas regras locais.
 
 ## 13. Redação técnica direta (unslop)
@@ -164,4 +164,9 @@ Um vault de time é um repositório próprio, com `.vault/config.json` próprio.
 
 - Ferramentas, MCP, hooks, templates genéricos, `.obsidian` base, esta política e as instruções base ficam no repositório `obsidian-config`, de preferência clonado em `<vault>/.obsidian-config/`.
 - Dado pessoal (caminho, organização, host, regra pessoal) vai para `.vault/config.json`, para a política local ou para as regras privadas, nunca para o `obsidian-config`.
-- Ao notar falha, lacuna ou melhoria nas ferramentas ou nesta política durante o trabalho, corrija no `obsidian-config`: mecanismo e regra genérica lá, valor pessoal no vault. Antes de comitar: `tests/run_tests.py` e `tools/privacy_gate.py` sem falhas. Push público só com aprovação explícita do operador.
+- Só o mantenedor altera o `obsidian-config` (`git config obsidian-config.maintainer true` no clone dele; o hook bloqueia commit e push nos demais). Mantenedor: ao notar falha, lacuna ou melhoria, corrija lá (mecanismo e regra genérica; valor pessoal no vault), com `tests/run_tests.py` e `tools/privacy_gate.py` sem falhas, e push público só com aprovação explícita. Outros usuários e seus agentes: não editam nem comitam; descrevem o problema e salvam o patch fora do repositório para o operador repassar ao mantenedor.
+
+## 16. Backup das configurações dos agentes
+
+- `agent-backup` (`vault backup`) guarda um snapshot `.tar.gz` das configurações de `~/.claude`, `~/.gemini`, `~/.agent`, `~/.agents` e `~/.codex` (instruções, settings, skills, agentes, comandos, hooks, memória). Nunca entram credenciais, histórico, cache ou arquivos grandes.
+- Roda no encerramento de sessão (hook) e antes de cada `sync-agents`, só quando o conteúdo mudou. Mantém os 20 mais novos. Destino e limites em `agent_backup` no `.vault/config.json`.

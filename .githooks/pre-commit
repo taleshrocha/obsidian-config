@@ -1,4 +1,5 @@
 #!/bin/sh
-# Hooks do próprio obsidian-config: barreira de privacidade antes de cada commit.
+# Hooks do próprio obsidian-config: só o mantenedor comita; depois, barreira de privacidade.
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
+sh "$DIR/lib/maintainer_gate.sh" || exit 1
 exec sh "$DIR/lib/runpy.sh" "$DIR/tools/privacy_gate.py"

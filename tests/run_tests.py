@@ -332,5 +332,63 @@ class TestInstallAndGate(Base):
         self.assertEqual(r.returncode, 0, r.stdout)
 
 
+class TeamVaultAndAuthTests(Base):
+    def test_vault_new_overrides_template_org(self):
+        v = self.make_vault(organizations=["Org A"])
+        write(v / "99 - Templates" / "Server.md", "---\ntype: server\nname: \norganization: Org B\n---\n# {{name}}\n")
+        r = self.run_tool("vault", "new", "server", "app-01", vault=v)  # org única vira padrão
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        note = next((v / "04 - Servers").rglob("app-01.md")).read_text(encoding="utf-8")
+        self.assertIn("organization: Org A", note)
+        self.assertNotIn("Org B", note)
+
+    def test_token_resolution_env_file_and_missing(self):
+        env_name = "TESTE_TOKEN_GIT"
+        rule = {"host_contains": "git.example.com", "token_env": env_name,
+                "token_file": str(self.home / "nao-existe")}
+        os.environ[env_name] = "abc"
+        try:
+            self.assertEqual(vaultcfg.resolve_token(rule, "https://git.example.com/x.git"), "abc")
+            args = vaultcfg.https_auth_args({"git_https_auth": [rule]}, "https://git.example.com/x.git")
+            self.assertEqual(args[0], "-c")
+            self.assertTrue(args[1].startswith("http.extraheader=Authorization: Basic "))
+        finally:
+            del os.environ[env_name]
+        tok_file = write(self.home / "tok", "xyz\n")
+        self.assertEqual(vaultcfg.resolve_token({"token_file": str(tok_file)}, "https://git.example.com/"), "xyz")
+        self.assertEqual(vaultcfg.https_auth_args({"git_https_auth": [rule]}, "https://outro.example.com/"), [])
+
+    def test_agent_backup_snapshots_only_on_change_and_skips_secrets(self):
+        write(self.home / ".claude" / "CLAUDE.md", "regras\n")
+        write(self.home / ".claude" / ".credentials.json", "{}")
+        write(self.home / ".claude" / "history.jsonl", "x\n")
+        write(self.home / ".gemini" / "GEMINI.md", "g\n")
+        dest = self.tmp / "bk"
+        v = self.make_vault(agent_backup={"dest": str(dest)})
+        r = self.run_tool("agent-backup", vault=v)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        snaps = list(dest.glob("agents-*.tar.gz"))
+        self.assertEqual(len(snaps), 1)
+        import tarfile
+        names = tarfile.open(snaps[0]).getnames()
+        self.assertIn(".claude/CLAUDE.md", names)
+        self.assertIn(".gemini/GEMINI.md", names)
+        self.assertNotIn(".claude/.credentials.json", names)
+        self.assertNotIn(".claude/history.jsonl", names)
+        self.run_tool("agent-backup", vault=v)
+        self.assertEqual(len(list(dest.glob("agents-*.tar.gz"))), 1)  # sem mudança, sem novo snapshot
+
+    def test_maintainer_gate_blocks_other_clones(self):
+        repo = self.tmp / "clone"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, env=self.env)
+        gate = REPO / "lib" / "maintainer_gate.sh"
+        blocked = subprocess.run(["sh", str(gate)], cwd=repo, env=self.env, capture_output=True, text=True)
+        self.assertEqual(blocked.returncode, 1)
+        subprocess.run(["git", "-C", str(repo), "config", "obsidian-config.maintainer", "true"], check=True, env=self.env)
+        allowed = subprocess.run(["sh", str(gate)], cwd=repo, env=self.env, capture_output=True, text=True)
+        self.assertEqual(allowed.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

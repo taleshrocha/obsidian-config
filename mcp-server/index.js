@@ -60,6 +60,32 @@ const AUTHOR = resolveAuthor();
 // Vault de time (shared_repo): antes de cada ferramenta, traz o que os colegas publicaram.
 // fetch + merge --ff-only, no máximo a cada `auto_pull_ttl_seconds`. Nunca faz rebase nem
 // mexe em commit local: se houver divergência ou falha de rede, avisa na saída da ferramenta.
+// Ordem do token: variável de ambiente (token_env), arquivo (token_file), cofre de credenciais do git.
+function resolveToken(rule, remoteUrl) {
+    const envVal = rule.token_env && (process.env[rule.token_env] || "").trim();
+    if (envVal) return envVal;
+    if (rule.token_file) {
+        const file = rule.token_file.replace(/^~(?=$|[\\/])/, process.env.HOME || process.env.USERPROFILE || "");
+        try {
+            const tok = fs.readFileSync(file, "utf8").trim();
+            if (tok) return tok;
+        } catch (_) {}
+    }
+    try {
+        const u = new URL(remoteUrl.trim());
+        if (!/^https?:$/.test(u.protocol)) return "";
+        const out = execFileSync("git", ["credential", "fill"], {
+            input: `protocol=${u.protocol.slice(0, -1)}\nhost=${u.host}\nusername=${rule.user || "oauth2"}\n\n`,
+            encoding: "utf8", timeout: 15000, stdio: ["pipe", "pipe", "ignore"],
+            env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" },
+        });
+        const line = out.split("\n").find(l => l.startsWith("password="));
+        return line ? line.slice("password=".length).trim() : "";
+    } catch (_) {
+        return "";
+    }
+}
+
 function httpsAuthArgs(remoteUrl) {
     // Regras git_https_auth do próprio vault ou do vault pessoal que o monta (pastas acima).
     const rules = [...(VAULT_CFG.git_https_auth || [])];
@@ -70,9 +96,9 @@ function httpsAuthArgs(remoteUrl) {
         } catch (_) {}
     }
     for (const rule of rules) {
-        const tokenFile = (rule.token_file || "").replace(/^~(?=$|[\\/])/, process.env.HOME || "");
-        if (!rule.host_contains || !remoteUrl.includes(rule.host_contains) || !fs.existsSync(tokenFile)) continue;
-        const token = fs.readFileSync(tokenFile, "utf8").trim();
+        if (!rule.host_contains || !remoteUrl.includes(rule.host_contains)) continue;
+        const token = resolveToken(rule, remoteUrl);
+        if (!token) continue;
         const basic = Buffer.from(`${rule.user || "oauth2"}:${token}`).toString("base64");
         return ["-c", `http.extraheader=Authorization: Basic ${basic}`];
     }

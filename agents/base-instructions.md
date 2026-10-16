@@ -98,6 +98,7 @@ Para não inchar o contexto nem aumentar a latência:
     - Ordem fixa: validar, comitar, enviar. Detalhes na política base, §3.2.
 12. **Ferramentas e configuração do vault (obsidian-config):**
     - Ferramentas, MCP, hooks, templates genéricos e estas instruções base vêm do repositório público `obsidian-config` em `{{CONFIG_DIR}}`. Contrato: `{{CONFIG_DIR}}/AGENTS.md`.
-    - Ao notar falha, lacuna ou melhoria possível nas ferramentas durante o trabalho no vault, corrija ali, sem pedir licença para investigar. Mecanismo vai para o repositório; valor pessoal vai para `<vault>/.vault/config.json` ou para as regras privadas.
-    - Antes de comitar no `obsidian-config`: `tests/run_tests.py` e `tools/privacy_gate.py` sem falhas. Commit local sim; push público só com aprovação explícita do operador.
+    - Ao notar falha, lacuna ou melhoria possível nas ferramentas, só o mantenedor corrige no repositório: `git -C {{CONFIG_DIR}} config --get obsidian-config.maintainer` deve devolver `true`. Mecanismo vai para o repositório; valor pessoal vai para `<vault>/.vault/config.json` ou para as regras privadas.
+    - Sem essa marca, o clone é de usuário comum: NÃO edite, comite nem publique no `obsidian-config` (o hook bloqueia; nunca use `--no-verify`). Descreva o problema, salve o patch proposto fora do repositório e entregue ao operador, que o repassa ao mantenedor. Tarefa do vault ou do projeto continua normalmente.
+    - Antes de comitar (mantenedor): `tests/run_tests.py` e `tools/privacy_gate.py` sem falhas. Commit local sim; push público só com aprovação explícita do operador.
 {{PRIVATE_RULES}}

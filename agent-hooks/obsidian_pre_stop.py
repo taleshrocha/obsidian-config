@@ -78,16 +78,9 @@ SHARED_MOUNTS = vaultcfg.shared_mount_paths(CFG)
 
 
 def https_auth_args(remote_url):
-    """Header HTTPS dinâmico para remotes configurados em git_https_auth (token lido do disco, nunca gravado)."""
-    import base64
-    for rule in CFG.get("git_https_auth", []):
-        token_file = Path(rule.get("token_file", "")).expanduser()
-        if rule.get("host_contains") and rule["host_contains"] in remote_url and token_file.is_file():
-            tok = token_file.read_text().strip()
-            user = rule.get("user", "oauth2")
-            hdr = "Authorization: Basic " + base64.b64encode(f"{user}:{tok}".encode()).decode()
-            return ["-c", f"http.extraheader={hdr}"]
-    return []
+    """Header HTTPS dinâmico para remotes de git_https_auth (token do ambiente, arquivo ou cofre do git; nunca gravado)."""
+    return vaultcfg.https_auth_args(CFG, remote_url)
+
 
 def sync_shared_vaults(vault_dir: Path):
     """Valida e comita vaults compartilhados montados como subpasta (repos git próprios).
@@ -159,7 +152,17 @@ def check_workspace_repos(workspace_paths, vault_dir: Path):
 
     return True, ""
 
+def backup_agent_configs():
+    """Snapshot das configs dos agentes se mudaram (no-op sem mudança). Nunca bloqueia o encerramento."""
+    tool = REPO / "bin" / "agent-backup"
+    try:
+        subprocess.run([sys.executable, "-X", "utf8", str(tool), "--quiet"], capture_output=True, text=True, timeout=30)
+    except Exception:
+        pass
+
+
 def main():
+    backup_agent_configs()
     try:
         raw_input = sys.stdin.read()
         payload = json.loads(raw_input) if raw_input.strip() else {}

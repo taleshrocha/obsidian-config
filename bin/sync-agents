@@ -13,6 +13,7 @@ Claude Code, Gemini CLI e Codex, preservando os outros servidores já configurad
 """
 
 import os
+import subprocess
 import sys
 import json
 import shutil
@@ -367,6 +368,13 @@ def main():
             scope = "Vault root" if args.check_vault_only else "All"
             print(f"{GREEN}✓ {scope} agent instructions are in sync with Shared Agent Policy.md.{RESET}")
         sys.exit(0)
+
+    # Antes de reescrever ~/.claude, ~/.gemini e afins, guarda o estado atual.
+    try:
+        subprocess.run([sys.executable, "-X", "utf8", str(REPO / "bin" / "agent-backup"), "--quiet"],
+                       capture_output=True, timeout=30)
+    except Exception:
+        pass
 
     if not args.quiet:
         print(f"{BOLD}{CYAN}╔═══════════════════════════════════════════════════════════════════╗{RESET}")

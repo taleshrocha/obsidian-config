@@ -46,6 +46,8 @@ DEFAULTS = {
     "policy_topics": [],
     "git": {"remote": "origin", "branch": "main", "auto_push": True},
     "git_https_auth": [],
+    # Snapshot das configs de ~/.claude, ~/.gemini, ~/.agent(s), ~/.codex: {enabled, dest, keep, max_file_kb, include}.
+    "agent_backup": {},
     "default_change_server": "",
     "guard": {"allow": [], "common_org_words": []},
     # Vault de time: IDs de change com autor e diário por autor evitam colisão entre devs.
@@ -142,6 +144,68 @@ def next_change_id(cfg, date_str):
                 if m:
                     seq = max(seq, int(m.group(1)))
     return f"{prefix}{seq + 1:03d}", year_dir
+
+
+def _credential_helper_token(remote_url, user="oauth2"):
+    """Token do gerenciador de credenciais do git (Git Credential Manager, Keychain, libsecret).
+    Nunca abre prompt: sem credencial guardada, devolve None."""
+    from urllib.parse import urlparse
+    u = urlparse(remote_url.strip())
+    if u.scheme not in ("http", "https") or not u.hostname:
+        return None
+    query = f"protocol={u.scheme}\nhost={u.netloc.rsplit('@', 1)[-1]}\nusername={user}\n\n"
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+    try:
+        res = subprocess.run(["git", "credential", "fill"], input=query, capture_output=True, text=True,
+                             timeout=15, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if res.returncode != 0:
+        return None
+    for line in res.stdout.splitlines():
+        if line.startswith("password="):
+            return line[len("password="):].strip() or None
+    return None
+
+
+def resolve_token(rule, remote_url):
+    """Token de uma regra git_https_auth. Ordem: variável de ambiente (token_env),
+    arquivo (token_file), gerenciador de credenciais do git. O caminho do arquivo
+    nunca é suposto: cada máquina escolhe o seu."""
+    env_name = rule.get("token_env")
+    if env_name and os.environ.get(env_name, "").strip():
+        return os.environ[env_name].strip()
+    if rule.get("token_file"):
+        f = Path(rule["token_file"]).expanduser()
+        if f.is_file():
+            tok = f.read_text(encoding="utf-8").strip()
+            if tok:
+                return tok
+    return _credential_helper_token(remote_url, rule.get("user", "oauth2"))
+
+
+def https_auth_args(cfg, remote_url, extra_rules=()):
+    """Argumentos `-c http.extraheader=...` para o remote, ou [] quando não há token.
+    Sem header, o git ainda usa o credential helper da máquina por conta própria."""
+    import base64
+    for rule in [*cfg.get("git_https_auth", []), *extra_rules]:
+        host = rule.get("host_contains")
+        if not host or host not in remote_url:
+            continue
+        tok = resolve_token(rule, remote_url)
+        if tok:
+            basic = base64.b64encode(f"{rule.get('user', 'oauth2')}:{tok}".encode()).decode()
+            return ["-c", f"http.extraheader=Authorization: Basic {basic}"]
+    return []
+
+
+def store_credential(remote_url, token, user="oauth2"):
+    """Guarda o token no gerenciador de credenciais do git (cofre do sistema)."""
+    from urllib.parse import urlparse
+    u = urlparse(remote_url.strip())
+    payload = f"protocol={u.scheme}\nhost={u.netloc.rsplit('@', 1)[-1]}\nusername={user}\npassword={token}\n\n"
+    res = subprocess.run(["git", "credential", "approve"], input=payload, capture_output=True, text=True, timeout=15)
+    return res.returncode == 0
 
 
 def shared_mount_paths(cfg):

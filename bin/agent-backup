@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""
+agent-backup: snapshot das configurações dos agentes (~/.claude, ~/.gemini, ~/.agent, ~/.agents, ~/.codex).
+
+Só entra o que é configuração (instruções, settings, skills, agentes, comandos, hooks, memória),
+nunca credencial, histórico, cache ou arquivo grande. O snapshot é um .tar.gz com data na
+pasta de destino, criado só quando o conteúdo mudou desde o último. Mantém os `keep` mais novos.
+
+Uso:
+  agent-backup            snapshot se houve mudança
+  agent-backup --force    snapshot mesmo sem mudança
+  agent-backup --list     lista snapshots
+  agent-backup --restore <arquivo.tar.gz> [--to DIR]   extrai (padrão: ~/agent-backup-restore)
+  agent-backup --quiet
+
+Config (<vault>/.vault/config.json -> "agent_backup"): enabled, dest, keep, max_file_kb, include.
+"""
+import argparse
+import fnmatch
+import hashlib
+import os
+import sys
+import tarfile
+from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import vaultcfg  # noqa: E402
+
+DEFAULT_INCLUDE = {
+    "~/.claude": ["CLAUDE.md", "settings.json", "settings.local.json", "keybindings.json", "skills/**",
+                  "agents/**", "commands/**", "hooks/**", "plugins/installed_plugins.json",
+                  "plugins/known_marketplaces.json", "projects/*/memory/**"],
+    "~/.gemini": ["GEMINI.md", "settings.json", "config/**", "antigravity/mcp_config.json", "antigravity/*.md"],
+    "~/.agent": ["**"],
+    "~/.agents": ["**"],
+    "~/.codex": ["AGENTS.md", "config.toml", "prompts/**", "skills/**", "memories/**"],
+}
+# Nunca entram, mesmo que casem com include.
+SECRET_PATTERNS = ["*credential*", "*oauth*", "auth.json", "*token*", "*.key", "*.pem", ".env", ".env.*", "*secret*",
+                   "node_modules", ".git"]
+
+
+def settings():
+    cfg = vaultcfg.load().get("agent_backup", {})
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return {
+        "enabled": cfg.get("enabled", True),
+        "dest": Path(cfg.get("dest") or xdg / "obsidian-config" / "backups" / "agents").expanduser(),
+        "keep": int(cfg.get("keep", 20)),
+        "max_file_kb": int(cfg.get("max_file_kb", 2048)),
+        "include": cfg.get("include") or DEFAULT_INCLUDE,
+    }
+
+
+def match(rel, patterns):
+    rel = rel.replace(os.sep, "/")
+    for pat in patterns:
+        if pat.endswith("/**"):
+            if rel.startswith(pat[:-3]) or fnmatch.fnmatch(rel, pat[:-3] + "/*"):
+                return True
+        elif pat == "**" or fnmatch.fnmatch(rel, pat):
+            return True
+    return False
+
+
+def collect(cfg):
+    files = []
+    for root_s, patterns in cfg["include"].items():
+        root = Path(root_s).expanduser()
+        if not root.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if not any(fnmatch.fnmatch(d.lower(), p) for p in SECRET_PATTERNS)]
+            for name in filenames:
+                p = Path(dirpath) / name
+                rel = p.relative_to(root).as_posix()
+                if any(fnmatch.fnmatch(name.lower(), s) for s in SECRET_PATTERNS) or not match(rel, patterns):
+                    continue
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                if p.is_file() and st.st_size <= cfg["max_file_kb"] * 1024:
+                    files.append((root.name, p, rel, st))
+    return files
+
+
+def fingerprint(files):
+    h = hashlib.sha256()
+    for top, p, rel, _ in sorted(files, key=lambda f: (f[0], f[2])):
+        h.update(top.encode() + b"\0" + rel.encode() + b"\0")
+        with open(p, "rb") as fh:
+            h.update(hashlib.sha256(fh.read()).digest())
+    return h.hexdigest()
+
+
+def snapshots(dest):
+    return sorted(dest.glob("agents-*.tar.gz")) if dest.is_dir() else []
+
+
+def backup(force=False, quiet=False):
+    cfg = settings()
+    if not cfg["enabled"]:
+        return 0
+    files = collect(cfg)
+    if not files:
+        if not quiet:
+            print("Nenhuma configuração de agente encontrada.")
+        return 0
+    fp = fingerprint(files)
+    dest = cfg["dest"]
+    dest.mkdir(parents=True, exist_ok=True)
+    marker = dest / ".last-fingerprint"
+    if not force and marker.is_file() and marker.read_text().strip() == fp:
+        if not quiet:
+            print("Sem mudança desde o último snapshot.")
+        return 0
+    out = dest / f"agents-{datetime.now().strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    with tarfile.open(out, "w:gz") as tar:
+        for top, p, rel, _ in files:
+            tar.add(p, arcname=f"{top}/{rel}", recursive=False)
+    marker.write_text(fp)
+    for old in snapshots(dest)[:-cfg["keep"]]:
+        old.unlink()
+    if not quiet:
+        print(f"Snapshot: {out} ({len(files)} arquivos)")
+    return 0
+
+
+def restore(archive, target):
+    target = Path(target).expanduser()
+    target.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive) as tar:
+        for m in tar.getmembers():
+            if m.name.startswith(("/", "..")) or ".." in Path(m.name).parts:
+                sys.exit(f"Entrada insegura no arquivo: {m.name}")
+        tar.extractall(target)
+    print(f"Extraído em {target}. Copie manualmente o que precisar de volta para o home.")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Backup das configurações dos agentes de IA")
+    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--quiet", "-q", action="store_true")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--restore")
+    ap.add_argument("--to", default="~/agent-backup-restore")
+    a = ap.parse_args()
+    if a.list:
+        for s in snapshots(settings()["dest"]):
+            print(s)
+        return 0
+    if a.restore:
+        return restore(a.restore, a.to)
+    try:
+        return backup(a.force, a.quiet)
+    except Exception as exc:  # backup nunca derruba o fluxo do agente
+        if not a.quiet:
+            print(f"agent-backup falhou: {exc}", file=sys.stderr)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

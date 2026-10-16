@@ -50,6 +50,8 @@ COMMANDS = [
     ("canvas", "Regenera os canvases de topologia"),
     ("sync-agents", "Instruções, skills e MCP dos agentes"),
     ("sync", "Valida, comita e envia o vault"),
+    ("backup [--list|--force|--restore f]", "Snapshot das configs de ~/.claude, ~/.gemini, ~/.agent(s), ~/.codex"),
+    ("auth <status|set> [host]", "Token Git no cofre do sistema (credential helper), sem arquivo fixo"),
     ("help", "Esta ajuda"),
 ]
 
@@ -230,7 +232,10 @@ def cmd_new(args):
     usage = "vault new <" + "|".join(sorted(TYPE_MAP)) + "> <nome> [--org O] [--server S] [--project P] [--env E] [--status S]"
     need(args, 2, usage)
     etype, name = args[0].lower(), args[1]
-    opts = {"org": "Cross-Organization", "server": "", "project": "", "env": "production", "status": "active"}
+    # Vault com uma única organização (vault de time): ela é o padrão, sem exigir --org.
+    cfg_orgs = vaultcfg.organizations(CFG)
+    opts = {"org": cfg_orgs[0] if len(cfg_orgs) == 1 else "Cross-Organization",
+            "server": "", "project": "", "env": "production", "status": "active"}
     rest = args[2:]
     for i in range(0, len(rest) - 1, 2):
         key = rest[i].lstrip("-")
@@ -268,9 +273,40 @@ def cmd_new(args):
     for k, v in (("name", clean), ("organization", org), ("environment", opts["env"]), ("status", opts["status"]),
                  ("last_verified", today), ("date", today), ("project", opts["project"]), ("server", opts["server"])):
         if v:
-            content = re.sub(rf"(?m)^{k}:\s*$", f"{k}: {v}", content)
+            # Sobrescreve também valor antigo do template (ex.: organização de outro time).
+            content = re.sub(rf"(?m)^{k}:[ \t]*.*$", lambda _m, k=k, v=v: f"{k}: {v}", content)
     dest.write_text(content, encoding="utf-8")
     print(c(GREEN, f"✓ Nota criada a partir de {template}:") + f" [[{rel(dest)}]]")
+
+
+def cmd_auth(args):
+    """vault auth status | vault auth set <host_contains>: token via cofre de credenciais do git."""
+    sub = args[0] if args else "status"
+    rules = CFG.get("git_https_auth", [])
+    if sub == "status":
+        if not rules:
+            print("Nenhuma regra git_https_auth configurada.")
+        for rule in rules:
+            host = rule.get("host_contains", "")
+            url = f"https://{host}/"
+            tok = vaultcfg.resolve_token(rule, url)
+            via = ("variável " + rule["token_env"]) if rule.get("token_env") and os.environ.get(rule["token_env"]) else \
+                  ("arquivo" if rule.get("token_file") and Path(rule["token_file"]).expanduser().is_file() else "cofre do git")
+            print(f"{host}: " + (c(GREEN, f"token disponível ({via})") if tok else c(RED, "sem token. Rode: vault auth set " + host)))
+        return 0
+    if sub == "set":
+        need(args, 2, "vault auth set <host>")
+        host = args[1]
+        rule = next((r for r in rules if r.get("host_contains") == host), {"user": "oauth2"})
+        import getpass
+        token = getpass.getpass(f"Token de acesso para {host} (não aparece na tela): ").strip()
+        if not token:
+            sys.exit(c(RED, "Token vazio."))
+        if vaultcfg.store_credential(f"https://{host}/", token, rule.get("user", "oauth2")):
+            print(c(GREEN, "✓ Token guardado no cofre de credenciais do git (Git Credential Manager, Keychain ou libsecret)."))
+            return 0
+        sys.exit(c(RED, "Falha ao guardar. Configure um credential helper: git config --global credential.helper <manager|osxkeychain|libsecret>"))
+    sys.exit(c(RED, "Uso: vault auth <status|set> [host]"))
 
 
 def cmd_meta(args):
@@ -464,7 +500,8 @@ def main():
         "meta": cmd_meta, "frontmatter": cmd_meta, "outline": cmd_outline, "toc": cmd_outline,
         "section": cmd_section, "links": cmd_links, "open": cmd_open, "change": cmd_change, "log": cmd_log,
         "canvas": lambda a: run_tool("generate-canvas", *a), "sync-agents": lambda a: run_tool("sync-agents", *a),
-        "sync": cmd_sync,
+        "sync": cmd_sync, "auth": cmd_auth,
+        "backup": lambda a: run_tool("agent-backup", *a),
     }
     if cmd not in table:
         print(c(RED, f"Comando desconhecido: '{cmd}'\n"))

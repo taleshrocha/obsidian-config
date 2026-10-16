@@ -26,28 +26,32 @@ if os.name == "nt" and not sys.flags.utf8_mode:
 USER_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "obsidian-config" / "config.json"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# Nome de cada pasta por papel (changes, servers, templates...). Presets em lib/folders.json,
+# lido também pelo MCP. O vault escolhe com "folders": {"preset": "pt-BR", "root": "Pessoal", <papel>: <nome>}.
+FOLDERS = json.loads((Path(__file__).resolve().parent / "folders.json").read_text(encoding="utf-8"))
+FOLDER_ORDER = FOLDERS["order"]
+FOLDER_PRESETS = FOLDERS["presets"]
+
 DEFAULTS = {
     "vault_name": "Work",
     "organizations": [],
-    "expected_dirs": [
-        "00 - Dashboard", "01 - Organizations", "02 - Projects", "03 - Repositories",
-        "04 - Servers", "05 - Services", "06 - Applications", "07 - Infrastructure",
-        "08 - Changes", "09 - Incidents", "10 - Procedures", "11 - Architecture",
-        "12 - Decisions", "13 - Meetings", "14 - Research", "15 - People",
-        "16 - Tools", "90 - Files", "99 - Templates",
-    ],
+    "expected_dirs": [FOLDER_PRESETS["pt-BR"][r] for r in FOLDER_ORDER],
     "allowed_root_entries": [".git", ".gitignore", ".gitattributes", ".obsidian", ".vault", ".obsidian-config", ".mirrors", ".trash"],
-    # Vaults de time montados como subpasta. Convenção: todos dentro de "80 - Shared Vaults/",
-    # um por projeto (ex.: "80 - Shared Vaults/Time A"), com a pasta no .gitignore do vault.
+    # Nomes das pastas: preset ("pt-BR", padrão, ou "en" para os nomes antigos em inglês), overrides por papel e root (subpasta onde fica o
+    # conteúdo, ex.: "Pessoal" quando os vaults de time ficam ao lado dele na raiz). expected_dirs,
+    # policy_note, agent_rules_note e journal.dir derivam daqui quando o config não os define.
+    "folders": {"preset": "pt-BR", "root": ""},
+    # Vaults de time montados como subpasta (repo git próprio), cada um no .gitignore do vault.
+    # Layout recomendado: "Time A" na raiz, ao lado de folders.root (ex.: "Pessoal").
     "shared_mounts": [],
     "projects_dir": "~/Projects",
-    "policy_note": "07 - Infrastructure/AI/Shared Agent Policy.md",
-    "agent_rules_note": "07 - Infrastructure/AI/Agent Rules.md",
+    "policy_note": "07 - Infraestrutura/AI/Shared Agent Policy.md",
+    "agent_rules_note": "07 - Infraestrutura/AI/Agent Rules.md",
     "policy_topics": [],
     "git": {"remote": "origin", "branch": "main", "auto_push": True},
     "git_https_auth": [],
     # Organização do conteúdo (vaults de time). org_subfolders: None = só quando há mais de uma
-    # organização; date_folders: pastas que ganham AAAA/MM (ex.: "08 - Changes"); people_dir: pasta
+    # organização; date_folders: pastas que ganham AAAA/MM (ex.: "08 - Mudancas"); people_dir: pasta
     # com uma nota por pessoa do time (ligada ao autor por `author:`), vazio desliga;
     # people_aliases: {"slug-do-autor": "Nome da nota"} quando o slug do git não bate com o nome;
     # people_suffix: nota "Nome (Org)", para o link não colidir com a mesma pessoa em outro vault
@@ -59,7 +63,7 @@ DEFAULTS = {
     "guard": {"allow": [], "common_org_words": []},
     # Vault de time: IDs de change com autor e diário por autor evitam colisão entre devs.
     "change_id_author": False,
-    "journal": {"dir": "13 - Meetings", "per_author": False, "type": "meeting"},
+    "journal": {"dir": "13 - Reunioes", "per_author": False, "type": "meeting"},
     # Checagens de privacidade (e-mail, telefone, home, senha literal, Dataview sem escopo).
     "privacy_checks": False,
     # Contas de servidor cujo /home/<conta> pode aparecer (ex.: ["nginx", "deploy"]).
@@ -141,7 +145,61 @@ def sanitize_team_config(data):
     for key in ("policy_note", "agent_rules_note"):
         if key in data and _unsafe_rel(data[key]):
             data.pop(key)
+    folders = dict(data.get("folders") or {})
+    data["folders"] = {k: v for k, v in folders.items() if k == "preset" or not v or not _unsafe_rel(v)}
     return data
+
+
+def _resolve_folders(cfg, data):
+    """Preenche folder_names, content_root e os caminhos que derivam deles."""
+    f = cfg.get("folders") or {}
+    names = dict(FOLDER_PRESETS["pt-BR"])
+    names.update(FOLDER_PRESETS.get(f.get("preset") or "pt-BR", {}))
+    names.update({k: v for k, v in f.items() if k not in ("preset", "root") and v})
+    if "files" in f and "sources" not in f:
+        names["sources"] = f["files"] + "/" + names["sources"].split("/", 1)[1]
+    root = (f.get("root") or "").strip("/")
+    cfg["folder_names"] = names
+    cfg["content_root"] = root
+    pre = root + "/" if root else ""
+    if "expected_dirs" not in data:
+        cfg["expected_dirs"] = [pre + names[r] for r in FOLDER_ORDER]
+    if "policy_note" not in data:
+        cfg["policy_note"] = f"{pre}{names['infrastructure']}/AI/Shared Agent Policy.md"
+    if "agent_rules_note" not in data:
+        cfg["agent_rules_note"] = f"{pre}{names['infrastructure']}/AI/Agent Rules.md"
+    if "dir" not in (data.get("journal") or {}):
+        cfg["journal"] = {**cfg["journal"], "dir": pre + names["meetings"]}
+
+
+def fname(cfg, role):
+    """Nome da pasta de um papel, sem o root (ex.: '08 - Mudancas')."""
+    return cfg["folder_names"][role]
+
+
+def fpath(cfg, role):
+    """Caminho da pasta de um papel relativo ao vault (ex.: 'Pessoal/08 - Mudancas')."""
+    return (cfg["content_root"] + "/" if cfg.get("content_root") else "") + cfg["folder_names"][role]
+
+
+def fdir(cfg, role):
+    return Path(cfg["vault_dir"]) / fpath(cfg, role)
+
+
+def render_folders(cfg, text):
+    """Troca nomes de pasta de qualquer preset pelo caminho configurado (config base do Obsidian)."""
+    pairs = sorted(((p[r], fpath(cfg, r)) for p in FOLDER_PRESETS.values() for r in p), key=lambda x: -len(x[0]))
+    root = cfg.get("content_root")
+    guard = rf"(?<!{re.escape(root)}/)" if root else ""  # idempotente: não prefixa o que já tem o root
+    pattern = re.compile(guard + "(?:" + "|".join(re.escape(a) for a, _ in pairs) + ")")
+    lookup = dict(pairs)
+    return pattern.sub(lambda m: lookup[m.group(0)], text)
+
+
+def strip_root(cfg, rel):
+    """Caminho relativo ao vault sem o prefixo de folders.root (para comparar com fname)."""
+    root = cfg.get("content_root")
+    return rel[len(root) + 1:] if root and rel.startswith(root + "/") else rel
 
 
 def load(vault=None):
@@ -153,6 +211,7 @@ def load(vault=None):
     if data.get("shared_repo") or _host_mounts(vdir):
         data = sanitize_team_config(data)
     cfg = _merge(DEFAULTS, data)
+    _resolve_folders(cfg, data)
     cfg["vault_dir"] = vdir
     cfg["projects_dir"] = str(Path(cfg["projects_dir"]).expanduser())
     return cfg
@@ -340,8 +399,8 @@ def journal_file(cfg, date_str):
 
 
 def next_change_id(cfg, date_str):
-    sub = date_sub(cfg, "08 - Changes", date_str) or date_str[:4]
-    year_dir = Path(cfg["vault_dir"]) / "08 - Changes" / sub
+    sub = date_sub(cfg, fpath(cfg, "changes"), date_str) or date_str[:4]
+    year_dir = fdir(cfg, "changes") / sub
     prefix = f"CHG-{date_str}-" + (f"{author(cfg)}-" if cfg.get("change_id_author") else "")
     seq = 0
     if year_dir.is_dir():
@@ -422,10 +481,10 @@ def store_credential(remote_url, token, user="oauth2"):
 
 
 def organizations(cfg):
-    """Organizações: config explícita ou notas em 01 - Organizations."""
+    """Organizações: config explícita ou notas na pasta de organizações."""
     if cfg.get("organizations"):
         return list(cfg["organizations"])
-    org_dir = Path(cfg["vault_dir"]) / "01 - Organizations"
+    org_dir = fdir(cfg, "organizations")
     return sorted(p.stem for p in org_dir.glob("*.md")) if org_dir.is_dir() else []
 
 

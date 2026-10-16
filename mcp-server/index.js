@@ -60,7 +60,7 @@ function loadVaultConfig() {
     const defaults = {
         vault_name: path.basename(VAULT_ROOT),
         change_id_author: false,
-        journal: { dir: "13 - Meetings", per_author: false, type: "meeting" },
+        journal: { dir: "", per_author: false, type: "meeting" },
         mcp_name: "obsidian-vault",
     };
     try {
@@ -72,6 +72,19 @@ function loadVaultConfig() {
     }
 }
 const VAULT_CFG = loadVaultConfig();
+
+// Mapa de pastas (espelha lib/vaultcfg.py): preset de lib/folders.json, overrides por papel e root.
+const FOLDER_PRESETS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "lib", "folders.json"), "utf8")).presets;
+const FOLDER_NAMES = (() => {
+    const f = VAULT_CFG.folders || {};
+    const names = { ...FOLDER_PRESETS["pt-BR"], ...(FOLDER_PRESETS[f.preset || "pt-BR"] || {}) };
+    for (const [k, v] of Object.entries(f)) if (k !== "preset" && k !== "root" && v) names[k] = v;
+    if (f.files && !f.sources) names.sources = `${f.files}/${names.sources.split("/").slice(1).join("/")}`;
+    return names;
+})();
+const CONTENT_ROOT = String((VAULT_CFG.folders || {}).root || "").replace(/^\/+|\/+$/g, "");
+const FP = role => (CONTENT_ROOT ? `${CONTENT_ROOT}/` : "") + FOLDER_NAMES[role];
+if (!VAULT_CFG.journal.dir) VAULT_CFG.journal.dir = FP("meetings");
 
 function slugify(s) {
     return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -267,7 +280,7 @@ const MAX_WRITE_BYTES = 64 * 1024;
 // Escrita do MCP: só .md nas pastas que as ferramentas usam, sem symlink e com tamanho limitado.
 function assertWritable(fullPath, ...texts) {
     const rel = insideVault(fullPath);
-    const allowed = ["08 - Changes", VAULT_CFG.journal.dir, LAYOUT.people_dir].filter(Boolean).map(d => path.normalize(d) + path.sep);
+    const allowed = [FP("changes"), VAULT_CFG.journal.dir, LAYOUT.people_dir].filter(Boolean).map(d => path.normalize(d) + path.sep);
     if (!rel || !rel.endsWith(".md") || !allowed.some(d => rel.startsWith(d))) {
         throw new Error(`Escrita recusada fora das pastas permitidas: ${path.relative(VAULT_ROOT, fullPath)}`);
     }
@@ -378,7 +391,7 @@ const TOOLS = [
             type: "object",
             properties: {
                 query: { type: "string", description: "Keyword or phrase to search for." },
-                folder: { type: "string", description: "Optional folder prefix to narrow search (e.g. '04 - Servers', '10 - Procedures')." },
+                folder: { type: "string", description: "Optional folder prefix to narrow search (e.g. '04 - Servidores', '10 - Procedimentos')." },
                 limit: { type: "integer", description: "Maximum number of results to return (default: 10)." }
             },
             required: ["query"]
@@ -390,7 +403,7 @@ const TOOLS = [
         inputSchema: {
             type: "object",
             properties: {
-                path_or_title: { type: "string", description: "Relative path or note title (e.g. 'app-prod-01' or '04 - Servers/Org/app-prod-01.md')." }
+                path_or_title: { type: "string", description: "Relative path or note title (e.g. 'app-prod-01' or '04 - Servidores/app-prod-01.md')." }
             },
             required: ["path_or_title"]
         }
@@ -401,7 +414,7 @@ const TOOLS = [
         inputSchema: {
             type: "object",
             properties: {
-                path_or_title: { type: "string", description: "Relative path or note title (e.g. 'app-prod-01' or '04 - Servers/Org/app-prod-01.md')." }
+                path_or_title: { type: "string", description: "Relative path or note title (e.g. 'app-prod-01' or '04 - Servidores/app-prod-01.md')." }
             },
             required: ["path_or_title"]
         }
@@ -412,7 +425,7 @@ const TOOLS = [
         inputSchema: {
             type: "object",
             properties: {
-                path_or_title: { type: "string", description: "Relative path or note title (e.g. 'app-prod-01' or '04 - Servers/Org/app-prod-01.md')." },
+                path_or_title: { type: "string", description: "Relative path or note title (e.g. 'app-prod-01' or '04 - Servidores/app-prod-01.md')." },
                 heading: { type: "string", description: "Heading text of the section to retrieve (e.g. 'Acesso e Conectividade' or 'Serviços Hospedados')." }
             },
             required: ["path_or_title", "heading"]
@@ -424,20 +437,20 @@ const TOOLS = [
         inputSchema: {
             type: "object",
             properties: {
-                path_or_title: { type: "string", description: "Relative path or note title (e.g. 'app-prod-01' or '04 - Servers/Org/app-prod-01.md')." }
+                path_or_title: { type: "string", description: "Relative path or note title (e.g. 'app-prod-01' or '04 - Servidores/app-prod-01.md')." }
             },
             required: ["path_or_title"]
         }
     },
     {
         name: "list_notes",
-        description: "List notes in the vault filtered by type (server, project, change, procedure, repository, application) or organization (as definidas em 01 - Organizations).",
+        description: "List notes in the vault filtered by type (server, project, change, procedure, repository, application) or organization (as definidas na pasta de organizações).",
         inputSchema: {
             type: "object",
             properties: {
                 type: { type: "string", description: "Filter by note frontmatter type (e.g. 'server', 'project', 'change', 'procedure')." },
-                organization: { type: "string", description: "Filter by organization (nome da nota em 01 - Organizations ou 'Cross-Organization')." },
-                folder: { type: "string", description: "Filter by vault folder prefix (e.g. '08 - Changes/2026')." },
+                organization: { type: "string", description: "Filter by organization (nome da nota na pasta de organizações ou 'Cross-Organization')." },
+                folder: { type: "string", description: "Filter by vault folder prefix (e.g. '08 - Mudancas/2026')." },
                 limit: { type: "integer", description: "Max results (default: 25)." }
             }
         }
@@ -474,7 +487,7 @@ const TOOLS = [
     },
     {
         name: "create_change_record",
-        description: "Create a formal, sequentially numbered Change record (CHG-YYYY-MM-DD-NNN) in 08 - Changes/YYYY/ following vault standards, and optionally open it in the Obsidian GUI.",
+        description: "Create a formal, sequentially numbered Change record (CHG-YYYY-MM-DD-NNN) in the vault's changes folder (08 - Mudancas/YYYY/ by default) following vault standards, and optionally open it in the Obsidian GUI.",
         inputSchema: {
             type: "object",
             properties: {
@@ -492,7 +505,7 @@ const TOOLS = [
     },
     {
         name: "append_daily_log",
-        description: "Append a timestamped entry or meeting log into today's log in 13 - Meetings/YYYY-MM-DD.md.",
+        description: "Append a timestamped entry or meeting log into today's journal note (journal.dir/YYYY-MM-DD.md, 13 - Reunioes by default).",
         inputSchema: {
             type: "object",
             properties: {
@@ -508,7 +521,7 @@ const TOOLS = [
         inputSchema: {
             type: "object",
             properties: {
-                organization: { type: "string", description: "Organization name (nota em 01 - Organizations)." }
+                organization: { type: "string", description: "Organization name (nota na pasta de organizações)." }
             },
             required: ["organization"]
         }
@@ -701,7 +714,7 @@ function handleCreateChangeRecord({ title, server, service, project, risk = "low
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const dd = String(now.getDate()).padStart(2, "0");
     const dateStr = `${yyyy}-${mm}-${dd}`;
-    const yearDir = path.join(VAULT_ROOT, "08 - Changes", dateSub("08 - Changes", dateStr) || String(yyyy));
+    const yearDir = path.join(VAULT_ROOT, FP("changes"), dateSub(FP("changes"), dateStr) || String(yyyy));
     assertWritable(path.join(yearDir, "probe.md"));
     fs.mkdirSync(yearDir, { recursive: true });
     const who = ensurePerson();
@@ -843,13 +856,13 @@ function handleGetArchitectureTopology({ organization }) {
         const { properties } = parseFrontmatter(content);
         if (organization && properties.organization !== organization && properties.organization !== "Cross-Organization") continue;
 
-        if (rel.startsWith("04 - Servers/")) {
+        if (rel.startsWith(FP("servers") + "/")) {
             servers.push(`- **[[${rel}|${path.basename(rel, ".md")}]]**: IP \`${properties.ip || properties.hostname || "-"}\` (${properties.environment || "-"})`);
-        } else if (rel.startsWith("05 - Services/")) {
+        } else if (rel.startsWith(FP("services") + "/")) {
             services.push(`- **[[${rel}|${path.basename(rel, ".md")}]]**: Porta \`${properties.port || "-"}\` em ${properties.server || "-"}`);
-        } else if (rel.startsWith("06 - Applications/")) {
+        } else if (rel.startsWith(FP("applications") + "/")) {
             applications.push(`- **[[${rel}|${path.basename(rel, ".md")}]]**: ${properties.type || "app"} (${properties.environment || "-"})`);
-        } else if (rel.startsWith("11 - Architecture/")) {
+        } else if (rel.startsWith(FP("architecture") + "/")) {
             architectures.push(`- [[${rel}|${path.basename(rel, ".md")}]]`);
         }
     }

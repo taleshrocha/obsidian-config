@@ -1,0 +1,53 @@
+{
+  "order": [
+    "dashboard", "organizations", "projects", "repositories", "servers", "services", "applications",
+    "infrastructure", "changes", "incidents", "procedures", "architecture", "decisions", "meetings",
+    "research", "people", "tools", "files", "templates"
+  ],
+  "presets": {
+    "en": {
+      "dashboard": "00 - Dashboard",
+      "organizations": "01 - Organizations",
+      "projects": "02 - Projects",
+      "repositories": "03 - Repositories",
+      "servers": "04 - Servers",
+      "services": "05 - Services",
+      "applications": "06 - Applications",
+      "infrastructure": "07 - Infrastructure",
+      "changes": "08 - Changes",
+      "incidents": "09 - Incidents",
+      "procedures": "10 - Procedures",
+      "architecture": "11 - Architecture",
+      "decisions": "12 - Decisions",
+      "meetings": "13 - Meetings",
+      "research": "14 - Research",
+      "people": "15 - People",
+      "tools": "16 - Tools",
+      "files": "90 - Files",
+      "sources": "90 - Files/Sources",
+      "templates": "99 - Templates"
+    },
+    "pt-BR": {
+      "dashboard": "00 - Painel",
+      "organizations": "01 - Organizacoes",
+      "projects": "02 - Projetos",
+      "repositories": "03 - Repositorios",
+      "servers": "04 - Servidores",
+      "services": "05 - Servicos",
+      "applications": "06 - Aplicacoes",
+      "infrastructure": "07 - Infraestrutura",
+      "changes": "08 - Mudancas",
+      "incidents": "09 - Incidentes",
+      "procedures": "10 - Procedimentos",
+      "architecture": "11 - Arquitetura",
+      "decisions": "12 - Decisoes",
+      "meetings": "13 - Reunioes",
+      "research": "14 - Pesquisa",
+      "people": "15 - Pessoas",
+      "tools": "16 - Ferramentas",
+      "files": "90 - Arquivos",
+      "sources": "90 - Arquivos/Fontes",
+      "templates": "99 - Modelos"
+    }
+  }
+}

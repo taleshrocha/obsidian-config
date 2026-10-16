@@ -1,6 +1,6 @@
 {
   "name": "create_change_record",
-  "description": "Create a formal, sequentially numbered Change record (CHG-YYYY-MM-DD-NNN) in 08 - Changes/YYYY/ following vault standards, and optionally open it in the Obsidian GUI.",
+  "description": "Create a formal, sequentially numbered Change record (CHG-YYYY-MM-DD-NNN) in the vault's changes folder (08 - Mudancas/YYYY/ by default) following vault standards, and optionally open it in the Obsidian GUI.",
   "parameters": {
     "type": "object",
     "properties": {

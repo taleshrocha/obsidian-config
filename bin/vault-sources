@@ -2,7 +2,7 @@
 """
 vault-sources: Karpathy LLM-Wiki Source Ingestion & Task Backlog Auditor
 
-Audita a Camada 1 (90 - Files/Sources) contra a Camada 2 (The Compiled Wiki):
+Audita a Camada 1 (90 - Arquivos/Fontes) contra a Camada 2 (The Compiled Wiki):
 1. Detecta arquivos brutos pendentes de ingestão (sem nota de síntese associada).
 2. Rastreia referências cruzadas e citações das fontes em notas de pesquisa, mudanças e procedimentos.
 3. Extrai e contabiliza tarefas e afazeres (- [ ] / - [x]) contidos nas fontes e nas notas de síntese.
@@ -21,6 +21,7 @@ from pathlib import Path
 from datetime import datetime
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import vaultcfg  # noqa: E402
+import functools  # noqa: E402
 
 # ANSI Colors
 CYAN = "\033[96m"
@@ -33,6 +34,15 @@ RESET = "\033[0m"
 
 TASK_PATTERN = re.compile(r'^\s*-\s*\[([ xX])\]\s*(.+)$')
 LINK_PATTERN = re.compile(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]')
+@functools.lru_cache(maxsize=None)
+def _cfg(vault_dir):
+    return vaultcfg.load(vault_dir)
+
+
+def P(vault_dir, role):
+    """Pasta de um papel relativa ao vault, conforme o mapa de pastas do config."""
+    return vaultcfg.fpath(_cfg(str(vault_dir)), role)
+
 
 def resolve_vault_path(custom_path=None):
     return vaultcfg.vault_dir(custom_path)
@@ -75,7 +85,7 @@ def extract_tasks_from_content(content, source_label=""):
                 priority = "low"
             
             # Se for extração de fonte bruta, apenas considerar como tarefa se houver tag, prioridade ou responsável explícito
-            if source_label.startswith("90 - Files/Sources") and not tags and not assignees and priority == "normal":
+            if source_label.startswith(tuple(p["sources"] for p in vaultcfg.FOLDER_PRESETS.values())) and not tags and not assignees and priority == "normal":
                 continue
             
             tasks.append({
@@ -90,7 +100,7 @@ def extract_tasks_from_content(content, source_label=""):
     return tasks
 
 def audit_sources(vault_dir):
-    sources_dir = vault_dir / "90 - Files/Sources"
+    sources_dir = vault_dir / P(vault_dir, "sources")
     results = {
         "timestamp": datetime.now().isoformat(),
         "vault_path": str(vault_dir),
@@ -108,7 +118,7 @@ def audit_sources(vault_dir):
     if not sources_dir.is_dir():
         return results
 
-    # 1. Localizar arquivos primários em 90 - Files/Sources
+    # 1. Localizar arquivos primários na pasta de fontes
     raw_files = []
     for p in sources_dir.rglob("*"):
         if p.is_file():
@@ -127,7 +137,7 @@ def audit_sources(vault_dir):
         rel = p.relative_to(vault_dir)
         rel_str = rel.as_posix()
         # Excluir a própria pasta de fontes brutas e ferramentas da indexação da wiki
-        if rel_str.startswith("90 - Files/Sources") or rel_str.startswith("16 - Tools"):
+        if rel_str.startswith((P(vault_dir, "sources"), P(vault_dir, "tools"))):
             continue
         try:
             content = p.read_text(encoding="utf-8", errors="ignore")

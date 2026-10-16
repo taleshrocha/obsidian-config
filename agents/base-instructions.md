@@ -8,7 +8,7 @@ Você é o {{AGENT_NAME}} operando neste sistema.
 A fonte canônica de verdade sobre infraestrutura, servidores, serviços, aplicações, projetos, procedimentos e decisões de arquitetura de todas as organizações ({{ORGANIZATIONS}}) é o **vault Obsidian** em:
 `{{VAULT_DIR}}`
 
-Política base: @{{CONFIG_DIR}}/agents/policy.md
+Política base: {{BASE_POLICY}}
 {{LOCAL_POLICY}}
 
 ### Ferramentas MCP (servidor `obsidian-vault`)
@@ -31,12 +31,12 @@ Vaults de time montados no vault principal têm um servidor MCP próprio, com o 
 
 ### Padrão LLM-Wiki de Karpathy (3 camadas e 3 operações)
 
-1. **Fontes brutas (`90 - Files/Sources/`):** fontes primárias imutáveis (artigos, transcrições, especificações, manuais). O agente lê e nunca edita.
+1. **Fontes brutas (`90 - Arquivos/Fontes/`):** fontes primárias imutáveis (artigos, transcrições, especificações, manuais). O agente lê e nunca edita.
 2. **Wiki compilada (`01` a `15`):** notas de síntese interligadas, mantidas pelo agente junto com o operador.
 3. **Esquema (política base, política local, `CLAUDE.md`, `GEMINI.md`, `AGENTS.md`):** contrato que define taxonomia e operações.
 
 - **Ingestão (`vault ingest <arquivo> [categoria]`):** compila a fonte bruta numa nota de síntese, atualiza de 5 a 15 notas de entidades e registra no diário.
-- **Consulta com acúmulo:** pesquisas e benchmarks voltam para o vault (`14 - Research/`, `10 - Procedures/`).
+- **Consulta com acúmulo:** pesquisas e benchmarks voltam para o vault (`14 - Pesquisa/`, `10 - Procedimentos/`).
 - **Lint (`vault lint`):** auditoria contínua com `vault-validate` e `vault-health`.
 
 ### Loop Engineering (execução durável e critério de parada)
@@ -44,7 +44,7 @@ Vaults de time montados no vault principal têm um servidor MCP próprio, com o 
 Rege tarefas de várias etapas e ciclos de execução autônoma:
 1. **Sucesso observável:** tarefa nunca é dada como concluída só pela palavra do agente. A prova é verificação determinística em camadas: testes aprovados, 0 registros órfãos, linter sem erro, smoke test HTTP 200, sondas de monitoramento ativas, logs.
 2. **Vault como espinha persistente:** tarefas longas ou assíncronas guardam estado fora da conversa:
-   - meta e escopo no change record (`08 - Changes/YYYY/CHG-...`);
+   - meta e escopo no change record (`08 - Mudancas/YYYY/CHG-...`);
    - linha do tempo no diário do dia;
    - pendências com `- [ ] #todo/... @responsável`.
 3. **Oscilação e falta de progresso:** nada de retentativa cega. Se duas iterações seguidas falharem sem mover nenhum critério de pendente para aprovado, ou se as soluções oscilarem, PARE com status `NEEDS_DIAGNOSIS` ou `BLOCKED`, mostre a evidência técnica e peça alinhamento ao operador.
@@ -60,7 +60,7 @@ Para não inchar o contexto nem aumentar a latência:
 
 ### Scaffolding Determinístico (sem boilerplate escrito pelo modelo)
 
-- `vault new <tipo> <nome> [opções]`: nota padronizada a partir de `99 - Templates/`, com YAML, datas e caminho preenchidos.
+- `vault new <tipo> <nome> [opções]`: nota padronizada a partir de `99 - Modelos/`, com YAML, datas e caminho preenchidos.
 - `vault change <título>`: calcula o próximo `CHG-YYYY-MM-DD-NNN` e cria o change record.
 - `vault log <mensagem>`: entrada com horário no diário de hoje.
 
@@ -72,16 +72,16 @@ Para não inchar o contexto nem aumentar a latência:
    - use `get_architecture_topology(organization)` para a visão estrutural.
 2. **Acúmulo de conhecimento em descobertas e diagnósticos (OBRIGATÓRIO):**
    - Quando uma pergunta operacional, um troubleshooting ou uma investigação revelar configuração, caminho, forma de acesso (VPN, SSH, tokens), topologia de rede ou procedimento **ausente, incompleto ou desatualizado no vault**, o agente **NÃO PODE** só responder no chat e encerrar.
-   - Toda lacuna descoberta é dívida de documentação. O agente documenta a descoberta no vault (`10 - Procedures/`, `04 - Servers/`, `05 - Services/`, `07 - Infrastructure/`), liga com WikiLinks às entidades pai e registra no diário (`append_daily_log` / `vault log`).
+   - Toda lacuna descoberta é dívida de documentação. O agente documenta a descoberta no vault (`10 - Procedimentos/`, `04 - Servidores/`, `05 - Servicos/`, `07 - Infraestrutura/`), liga com WikiLinks às entidades pai e registra no diário (`append_daily_log` / `vault log`).
 3. **O trabalho só termina com o conhecimento atualizado e enviado:**
    - toda mudança estrutural gera change record (`create_change_record` ou `vault change`);
    - ações operacionais vão para o diário do dia (`append_daily_log` ou `vault log`);
    - entidades novas nascem com `vault new`.
 4. **Dataview e Canvas:**
-   - mantenha o frontmatter YAML das notas atualizado; as tabelas Dataview dos dashboards em `00 - Dashboard/` se atualizam sozinhas;
+   - mantenha o frontmatter YAML das notas atualizado; as tabelas Dataview dos dashboards em `00 - Painel/` se atualizam sozinhas;
    - atualize os mapas de arquitetura com `vault canvas` (ou `generate-canvas`).
 5. **CLI unificada (`vault`):** `status`, `search`, `meta`, `outline`, `section`, `links`, `new`, `open`, `change`, `log`, `canvas`, `health`, `validate`, `sync`, `sync-agents`.
-6. **Ferramentas do desenvolvedor (`16 - Tools/`):** linters, suítes de qualidade e diagnósticos ficam em `16 - Tools/.<Org>/` (pastas com `.` para isolamento do Obsidian; catalogadas em `16 - Tools/README.md`).
+6. **Ferramentas do desenvolvedor (`16 - Ferramentas/`):** linters, suítes de qualidade e diagnósticos ficam em `16 - Ferramentas/.<Org>/` (pastas com `.` para isolamento do Obsidian; catalogadas em `16 - Ferramentas/README.md`).
 7. **Zero segredos:** nunca escreva senha, chave privada, token de API ou valor real de `.env` em nota. Use `[REDACTED]`.
 8. **Validação e hooks:** antes de encerrar uma tarefa que alterou o vault, rode `validate_vault` (ou `vault validate`) e garanta 0 links quebrados e 0 erros.
 9. **Commit e push obrigatórios ao encerrar (OBRIGATÓRIO):**
@@ -90,7 +90,7 @@ Para não inchar o contexto nem aumentar a latência:
 10. **Preferências do operador e memória privada do agente:**
     - Preferências de colaboração, tom, formatação, convenções e regras de conduta pertencem ao vault, NUNCA só à memória privada/local de uma ferramenta (`memory/*.md`).
     - A memória privada do agente, se existir, é só um ponteiro para a nota canônica no vault (`[[Nome da Nota]]`).
-    - Regra prática: se a preferência precisa valer amanhã no Gemini CLI, no Claude Code e no Codex, ela vai para o vault (`10 - Procedures/` ou política local).
+    - Regra prática: se a preferência precisa valer amanhã no Gemini CLI, no Claude Code e no Codex, ela vai para o vault (`10 - Procedimentos/` ou política local).
 11. **Validação completa antes de entregar (OBRIGATÓRIO):**
     - Antes de commit/push ou de declarar uma tarefa concluída em código de projeto, RODE a suíte completa de validação do repositório, a mesma da CI (ex.: frontend `npm run validate` = lint + typecheck + build; backend `./mvnw test` no módulo afetado). Lint ou tsc parcial nos arquivos tocados NÃO substitui.
     - Mudança de UI: suba o dev server e exercite o fluxo no navegador para cada perfil de usuário afetado, conferindo o console sem erros.

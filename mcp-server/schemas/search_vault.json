@@ -10,7 +10,7 @@
       },
       "folder": {
         "type": "string",
-        "description": "Optional folder prefix to narrow search (e.g. '04 - Servers', '10 - Procedures')."
+        "description": "Optional folder prefix to narrow search (e.g. '04 - Servidores', '10 - Procedimentos')."
       },
       "limit": {
         "type": "integer",

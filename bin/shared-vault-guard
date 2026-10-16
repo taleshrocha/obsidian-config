@@ -30,7 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import vaultcfg  # noqa: E402
 
 # Pastas cujo nome de arquivo não identifica nada (datas, modelos, ferramentas, painéis).
-SKIP_DIRS = {"13 - Meetings", "99 - Templates", "16 - Tools", "00 - Dashboard"}
+SKIP_ROLES = ("meetings", "templates", "tools", "dashboard")
+SKIP_DIRS = {p[r] for p in vaultcfg.FOLDER_PRESETS.values() for r in SKIP_ROLES}
 # Valores genéricos que podem aparecer legitimamente em qualquer vault.
 BASE_ALLOW = {"127.0.0.1", "0.0.0.0", "localhost", "Cross-Organization", "production", "local",
               "README", "AGENTS", "CLAUDE", "GEMINI", "Claude", "Gemini", "Codex", "chat"}
@@ -97,7 +98,9 @@ def build_denylist(cfg, mount, include_mounts=False):
     mounts = {root / p for p in vaultcfg.shared_mount_paths(cfg)}
     terms = set()
 
-    for org_note in (root / "01 - Organizations").glob("*.md"):
+    skip = SKIP_DIRS | {vaultcfg.fname(cfg, r) for r in SKIP_ROLES}
+    orgs_name = vaultcfg.fname(cfg, "organizations")
+    for org_note in vaultcfg.fdir(cfg, "organizations").glob("*.md"):
         name = org_note.stem
         if name == mount_org:
             continue
@@ -114,14 +117,18 @@ def build_denylist(cfg, mount, include_mounts=False):
             dirs[:] = []
             continue
         rel = d.relative_to(root)
+        if rel.parts and rel.parts[0].startswith("."):
+            dirs[:] = []
+            continue
+        rel = Path(vaultcfg.strip_root(cfg, rel.as_posix()))
         for mp in mounts:
             if include_mounts and (d == mp or mp in d.parents):
                 rel = d.relative_to(mp)
-        if rel.parts and (rel.parts[0] in SKIP_DIRS or rel.parts[0].startswith(".")):
+        if rel.parts and (rel.parts[0] in skip or rel.parts[0].startswith(".")):
             dirs[:] = []
             continue
         dirs[:] = [x for x in dirs if not x.startswith(".") and x != "node_modules"]
-        if not rel.parts or rel.parts[0] == "01 - Organizations":
+        if not rel.parts or rel.parts[0] in (orgs_name, cfg.get("content_root")):
             continue
         for f in files:
             if not f.endswith(".md"):

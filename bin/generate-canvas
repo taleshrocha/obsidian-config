@@ -6,8 +6,8 @@ Gera representações espaciais visuais interativas da arquitetura e infraestrut
 (Servidores -> Serviços -> Aplicações) em arquivos .canvas compatíveis com a especificação JSON Canvas.
 
 Cria:
-- 11 - Architecture/Canvas - <Organização> Infrastructure.canvas (uma por organização do config)
-- 11 - Architecture/Canvas - Global Topology.canvas
+- 11 - Arquitetura/Canvas - <Organização> Infrastructure.canvas (uma por organização do config)
+- 11 - Arquitetura/Canvas - Global Topology.canvas
 """
 
 import os
@@ -67,9 +67,9 @@ def build_org_canvas(vault_dir, org_name):
     })
 
     # Find servers, services, applications
-    servers_dir = vault_dir / "04 - Servers"
-    services_dir = vault_dir / "05 - Services"
-    apps_dir = vault_dir / "06 - Applications"
+    servers_dir = vault_dir / vaultcfg.fpath(CFG, "servers")
+    services_dir = vault_dir / vaultcfg.fpath(CFG, "services")
+    apps_dir = vault_dir / vaultcfg.fpath(CFG, "applications")
 
     servers = []
     services = []
@@ -81,7 +81,7 @@ def build_org_canvas(vault_dir, org_name):
         rel = p.relative_to(vault_dir)
         rel_str = rel.as_posix()
         # Vault compartilhado montado como subpasta: regras de pasta relativas ao mount
-        rule_str = rel_str
+        rule_str = vaultcfg.strip_root(CFG, rel_str)
         for mount in MOUNTS:
             if rel_str.startswith(mount + "/"):
                 rule_str = rel_str[len(mount) + 1:]
@@ -92,11 +92,11 @@ def build_org_canvas(vault_dir, org_name):
         if org_name != "Global" and file_org != org_name and file_org != "Cross-Organization":
             continue
 
-        if rule_str.startswith("04 - Servers/"):
+        if rule_str.startswith(vaultcfg.fname(CFG, "servers") + "/"):
             servers.append((p.stem, rel_str, props))
-        elif rule_str.startswith("05 - Services/"):
+        elif rule_str.startswith(vaultcfg.fname(CFG, "services") + "/"):
             services.append((p.stem, rel_str, props))
-        elif rule_str.startswith("06 - Applications/"):
+        elif rule_str.startswith(vaultcfg.fname(CFG, "applications") + "/"):
             apps.append((p.stem, rel_str, props))
 
     node_map = {} # stem or rel_str -> node_id
@@ -227,7 +227,7 @@ def build_org_canvas(vault_dir, org_name):
 
 def main():
     vault_dir = resolve_vault_path()
-    arch_dir = vault_dir / "11 - Architecture"
+    arch_dir = vault_dir / vaultcfg.fpath(CFG, "architecture")
     arch_dir.mkdir(parents=True, exist_ok=True)
 
     orgs = [o for o in vaultcfg.organizations(CFG) if o != "Cross-Organization"] + ["Global"]

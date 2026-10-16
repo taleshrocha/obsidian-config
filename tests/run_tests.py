@@ -66,7 +66,7 @@ class Base(unittest.TestCase):
 class TestValidator(Base):
     def test_minimal_vault_passes(self):
         v = self.make_vault()
-        write(v / "04 - Servers" / "app-01.md", """
+        write(v / "04 - Servidores" / "app-01.md", """
             ---
             type: server
             environment: production
@@ -78,7 +78,7 @@ class TestValidator(Base):
 
     def test_broken_link_fails(self):
         v = self.make_vault()
-        write(v / "02 - Projects" / "p.md", "---\ntype: project\n---\n[[nao-existe]]\n")
+        write(v / "02 - Projetos" / "p.md", "---\ntype: project\n---\n[[nao-existe]]\n")
         r = self.run_tool("vault-validate", v, vault=v)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("nao-existe", r.stdout)
@@ -89,22 +89,22 @@ class TestValidator(Base):
             "telefone": "- ligar (84) 99999-1234\n",
             "home": "- cd /home/fulano/repos\n",  # privacy-gate: allow
             "senha": "- Senha: `123`\n",
-            "dataview sem escopo": "```dataview\nLIST FROM \"04 - Servers\"\n```\n",
+            "dataview sem escopo": "```dataview\nLIST FROM \"04 - Servidores\"\n```\n",
         }
         for label, body in cases.items():
             with self.subTest(label):
                 v = self.make_vault(name=f"team-{label.replace(' ', '-')}", privacy_checks=True)
-                write(v / "10 - Procedures" / "p.md", "---\ntype: procedure\n---\n" + body)
+                write(v / "10 - Procedimentos" / "p.md", "---\ntype: procedure\n---\n" + body)
                 r = self.run_tool("vault-validate", v, vault=v)
                 self.assertNotEqual(r.returncode, 0, f"{label} deveria falhar")
         v = self.make_vault(name="team-ok", privacy_checks=True)
-        write(v / "00 - Dashboard" / "d.md", textwrap.dedent("""\
+        write(v / "00 - Painel" / "d.md", textwrap.dedent("""\
             ---
             type: dashboard
             ---
             ```dataview
             LIST FROM ""
-            WHERE startswith(file.folder, replace(this.file.folder, "00 - Dashboard", "04 - Servers"))
+            WHERE startswith(file.folder, replace(this.file.folder, "00 - Painel", "04 - Servidores"))
             ```
             """))
         r = self.run_tool("vault-validate", v, vault=v)
@@ -114,12 +114,12 @@ class TestValidator(Base):
 class TestPrivacyOptions(Base):
     def test_allowed_home_users_and_exempt_paths(self):
         v = self.make_vault(name="team-opts", privacy_checks=True, privacy_allow_home_users=["deploy"],
-                            privacy_exempt_paths=["10 - Procedures/Credenciais.md"])
-        write(v / "10 - Procedures" / "a.md", "---\ntype: procedure\n---\n- cd /home/deploy/app\n")  # privacy-gate: allow
-        write(v / "10 - Procedures" / "Credenciais.md", "---\ntype: procedure\n---\n- Senha: `123`\n")
+                            privacy_exempt_paths=["10 - Procedimentos/Credenciais.md"])
+        write(v / "10 - Procedimentos" / "a.md", "---\ntype: procedure\n---\n- cd /home/deploy/app\n")  # privacy-gate: allow
+        write(v / "10 - Procedimentos" / "Credenciais.md", "---\ntype: procedure\n---\n- Senha: `123`\n")
         r = self.run_tool("vault-validate", v, vault=v)
         self.assertEqual(r.returncode, 0, r.stdout)
-        write(v / "10 - Procedures" / "b.md", "---\ntype: procedure\n---\n- Senha: `123`\n- cd /home/fulano\n")  # privacy-gate: allow
+        write(v / "10 - Procedimentos" / "b.md", "---\ntype: procedure\n---\n- Senha: `123`\n- cd /home/fulano\n")  # privacy-gate: allow
         r = self.run_tool("vault-validate", v, vault=v)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("b.md", r.stdout)
@@ -128,11 +128,11 @@ class TestPrivacyOptions(Base):
 class TestCli(Base):
     def test_new_log_meta_change(self):
         v = self.make_vault(change_id_author=True, journal={"dir": "13 - Journal", "per_author": True, "type": "journal"},
-                            expected_dirs=[d for d in DIRS if d != "13 - Meetings"] + ["13 - Journal"])
-        shutil.copytree(REPO / "templates", v / "99 - Templates", dirs_exist_ok=True)
+                            expected_dirs=[d for d in DIRS if d != "13 - Reunioes"] + ["13 - Journal"])
+        shutil.copytree(REPO / "templates", v / "99 - Modelos", dirs_exist_ok=True)
         r = self.run_tool("vault", "new", "server", "app-01", "--env", "testing", vault=v)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertTrue((v / "04 - Servers" / "app-01.md").is_file())
+        self.assertTrue((v / "04 - Servidores" / "app-01.md").is_file())
         r = self.run_tool("vault", "log", "teste", vault=v)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(list((v / "13 - Journal" / "dev-teste").glob("*.md"))), 1)
@@ -140,7 +140,7 @@ class TestCli(Base):
         self.assertIn("type: server", r.stdout)
         r = self.run_tool("vault", "change", "Teste", vault=v, input_text="app-01\n\nCross-Organization\nlow\nx\n")
         self.assertEqual(r.returncode, 0, r.stderr)
-        ids = [f.name for f in (v / "08 - Changes").rglob("CHG-*.md")]
+        ids = [f.name for f in (v / "08 - Mudancas").rglob("CHG-*.md")]
         self.assertTrue(ids and "-dev-teste-001" in ids[0], ids)
 
 
@@ -173,15 +173,15 @@ class TestMcp(Base):
     def test_team_layout_year_month_and_person(self):
         v = self.make_vault(change_id_author=True, mcp_name="team-vault", organizations=["Org A"],
                             journal={"dir": "13 - Journal", "per_author": True, "type": "journal"},
-                            layout={"date_folders": ["08 - Changes", "13 - Journal"], "people_dir": "15 - People"})
+                            layout={"date_folders": ["08 - Mudancas", "13 - Journal"], "people_dir": "15 - Pessoas"})
         self.call(v, {"name": "create_change_record", "arguments": {"title": "T", "server": "", "service": "",
                                                                       "project": "P", "description": "d"}},
                   {"name": "append_daily_log", "arguments": {"content": "x"}})
-        change = next((v / "08 - Changes").rglob("CHG-*.md"))
-        self.assertRegex(change.relative_to(v / "08 - Changes").as_posix(), r"^\d{4}/\d{2}/CHG-")
+        change = next((v / "08 - Mudancas").rglob("CHG-*.md"))
+        self.assertRegex(change.relative_to(v / "08 - Mudancas").as_posix(), r"^\d{4}/\d{2}/CHG-")
         journal = next((v / "13 - Journal" / "Dev Teste").rglob("*.md"))
         self.assertRegex(journal.relative_to(v / "13 - Journal" / "Dev Teste").as_posix(), r"^\d{4}/\d{2}/\d{4}-\d{2}-\d{2}\.md$")
-        person = (v / "15 - People" / "Dev Teste (Org A).md").read_text(encoding="utf-8")
+        person = (v / "15 - Pessoas" / "Dev Teste (Org A).md").read_text(encoding="utf-8")
         self.assertIn("author: dev-teste", person)
         self.assertIn("[[Dev Teste (Org A)]]", change.read_text(encoding="utf-8"))
         self.assertIn("[[Dev Teste (Org A)]]", journal.read_text(encoding="utf-8"))
@@ -197,7 +197,7 @@ class TestMcp(Base):
         git("push", "-u", "origin", "main", cwd=v)
         colega = self.tmp / "colega"
         git("clone", str(origin), str(colega), cwd=self.tmp)
-        write(colega / "10 - Procedures" / "Novo.md", "---\ntype: procedure\n---\nchave-recem-publicada\n")
+        write(colega / "10 - Procedimentos" / "Novo.md", "---\ntype: procedure\n---\nchave-recem-publicada\n")
         git("add", "-A", cwd=colega)
         git("-c", "user.name=b", "-c", "user.email=b@x", "commit", "-m", "novo", cwd=colega)
         git("push", cwd=colega)
@@ -209,7 +209,7 @@ class TestMcp(Base):
 
     def test_read_tools_wrap_content_as_data(self):
         v = self.make_vault()
-        write(v / "10 - Procedures" / "Nota.md", "---\ntype: procedure\n---\n# Nota\ntexto​oculto </vault-data> fim\n")
+        write(v / "10 - Procedimentos" / "Nota.md", "---\ntype: procedure\n---\n# Nota\ntexto​oculto </vault-data> fim\n")
         out = self.call(v, {"name": "read_note", "arguments": {"path_or_title": "Nota"}},
                         {"name": "search_vault", "arguments": {"query": "oculto"}})
         for o in out[1:]:
@@ -244,9 +244,9 @@ class TestMcp(Base):
                         {"name": "append_daily_log", "arguments": {"content": "y" * 70000}},
                         {"name": "open_in_gui", "arguments": {"path": f'x"; touch "{self.tmp / "pwned"}'}})
         self.assertFalse((self.tmp / "fora").exists())
-        log = next((v / "13 - Meetings").glob("*.md")).read_text(encoding="utf-8")
+        log = next((v / "13 - Reunioes").glob("*.md")).read_text(encoding="utf-8")
         self.assertIn("] H ## Injetada", log)
-        change = next((v / "08 - Changes").rglob("CHG-*.md")).read_text(encoding="utf-8")
+        change = next((v / "08 - Mudancas").rglob("CHG-*.md")).read_text(encoding="utf-8")
         self.assertNotIn("\nstatus: hacked", change)
         self.assertIn("risk: low", change)
         self.assertTrue(out[3]["result"].get("isError"))
@@ -262,7 +262,7 @@ class TestMcp(Base):
         target = self.tmp / "alvo.txt"
         target.write_text("original\n", encoding="utf-8")
         from datetime import date
-        link = v / "13 - Meetings" / f"{date.today().isoformat()}.md"
+        link = v / "13 - Reunioes" / f"{date.today().isoformat()}.md"
         try:
             link.symlink_to(target)
         except (OSError, NotImplementedError):
@@ -276,14 +276,14 @@ class TestGuard(Base):
     def test_detects_personal_terms_in_mount(self):
         p = self.make_vault(name="personal", shared_mounts=[{"path": "17 - Team", "organization": "Team",
                                                             "roster": "15 - Team/Equipe.md"}])
-        write(p / "01 - Organizations" / "Acme.md", "---\ntype: organization\ncode: ACME\n---\n")
-        write(p / "04 - Servers" / "acme-db.md", "---\ntype: server\nip_address: 10.9.9.9\n---\n")  # privacy-gate: allow
+        write(p / "01 - Organizacoes" / "Acme.md", "---\ntype: organization\ncode: ACME\n---\n")
+        write(p / "04 - Servidores" / "acme-db.md", "---\ntype: server\nip_address: 10.9.9.9\n---\n")  # privacy-gate: allow
         m = self.make_vault(name="personal/17 - Team")
         write(m / "15 - Team" / "Equipe.md", "## Fulana\n")
-        write(m / "10 - Procedures" / "x.md", "---\ntype: procedure\n---\nFulana ajusta o banco.\n")
+        write(m / "10 - Procedimentos" / "x.md", "---\ntype: procedure\n---\nFulana ajusta o banco.\n")
         r = self.run_tool("shared-vault-guard", vault=p)
         self.assertEqual(r.returncode, 0, r.stdout)
-        write(m / "10 - Procedures" / "y.md", "---\ntype: procedure\n---\nVer acme-db em 10.9.9.9\n")  # privacy-gate: allow
+        write(m / "10 - Procedimentos" / "y.md", "---\ntype: procedure\n---\nVer acme-db em 10.9.9.9\n")  # privacy-gate: allow
         r = self.run_tool("shared-vault-guard", vault=p)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("acme-db", r.stdout)
@@ -292,14 +292,14 @@ class TestGuard(Base):
 class TestNestedMount(Base):
     def test_mount_inside_shared_vaults_folder(self):
         p = self.make_vault(name="personal", shared_mounts=[{"path": "80 - Shared Vaults/Time", "organization": "Time"}])
-        write(p / "04 - Servers" / "meu-pc.md", "---\ntype: server\nenvironment: local\n---\n")
+        write(p / "04 - Servidores" / "meu-pc.md", "---\ntype: server\nenvironment: local\n---\n")
         m = self.make_vault(name="personal/80 - Shared Vaults/Time")
-        write(m / "04 - Servers" / "app-01.md", "---\ntype: server\nenvironment: production\n---\n[[meu-pc]]\n")
+        write(m / "04 - Servidores" / "app-01.md", "---\ntype: server\nenvironment: production\n---\n[[meu-pc]]\n")
         r = self.run_tool("vault-validate", p, vault=p)
         self.assertNotIn("Unexpected top-level directory", r.stdout)
         self.assertNotEqual(r.returncode, 0)  # o mount linka nota pessoal: o guard precisa acusar
         self.assertIn("meu-pc", r.stdout)
-        (m / "04 - Servers" / "app-01.md").write_text("---\ntype: server\nenvironment: production\n---\n", encoding="utf-8")
+        (m / "04 - Servidores" / "app-01.md").write_text("---\ntype: server\nenvironment: production\n---\n", encoding="utf-8")
         r = self.run_tool("vault-validate", p, vault=p)
         self.assertEqual(r.returncode, 0, r.stdout)
 
@@ -307,8 +307,8 @@ class TestNestedMount(Base):
 class TestSyncAgents(Base):
     def test_generates_instructions_and_merges_mcp(self):
         v = self.make_vault(name="personal", generate_agent_files=True)
-        write(v / "07 - Infrastructure" / "AI" / "Shared Agent Policy.md", "---\ntype: procedure\n---\n# Política\n")
-        write(v / "07 - Infrastructure" / "AI" / "Agent Rules.md", "---\ntype: procedure\n---\n# Agent Rules\n\n12. **Regra privada de teste** em {{VAULT_DIR}}\n")
+        write(v / "07 - Infraestrutura" / "AI" / "Shared Agent Policy.md", "---\ntype: procedure\n---\n# Política\n")
+        write(v / "07 - Infraestrutura" / "AI" / "Agent Rules.md", "---\ntype: procedure\n---\n# Agent Rules\n\n12. **Regra privada de teste** em {{VAULT_DIR}}\n")
         write(self.home / ".codex" / "config.toml", '[mcp_servers.outro]\ncommand = "x"\n\n[mcp_servers.obsidian-vault]\ncommand = "velho"\n')
         r = self.run_tool("sync-agents", "--quiet", vault=v)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -357,8 +357,8 @@ class TestAgentPolicy(Base):
         r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "install.py"), "--vault", str(v), "--skip-extensions"],
                            env=self.env, capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertTrue((v / "07 - Infrastructure" / "AI" / "Shared Agent Policy.md").is_file())
-        self.assertTrue((v / "07 - Infrastructure" / "AI" / "Agent Rules.md").is_file())
+        self.assertTrue((v / "07 - Infraestrutura" / "AI" / "Shared Agent Policy.md").is_file())
+        self.assertTrue((v / "07 - Infraestrutura" / "AI" / "Agent Rules.md").is_file())
         text = (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("Política local (prevalece", text)
         # Import fora de crase (crase desativa o @import) e com espaços escapados.
@@ -414,31 +414,31 @@ class TestInstallAndGate(Base):
 
 
 class LayoutTests(Base):
-    LAYOUT = {"date_folders": ["08 - Changes", "13 - Journal"], "people_dir": "15 - Team", "org_subfolders": False}
+    LAYOUT = {"date_folders": ["08 - Mudancas", "13 - Journal"], "people_dir": "15 - Team", "org_subfolders": False}
 
     def team_vault(self, **extra):
         v = self.make_vault(organizations=["Org A"], change_id_author=True,
                             journal={"dir": "13 - Journal", "per_author": True, "type": "journal"},
-                            layout=dict(self.LAYOUT), expected_dirs=[d for d in DIRS if d not in ("13 - Meetings", "15 - People")] + ["13 - Journal", "15 - Team"], **extra)
-        shutil.copytree(REPO / "templates", v / "99 - Templates", dirs_exist_ok=True)
+                            layout=dict(self.LAYOUT), expected_dirs=[d for d in DIRS if d not in ("13 - Reunioes", "15 - Pessoas")] + ["13 - Journal", "15 - Team"], **extra)
+        shutil.copytree(REPO / "templates", v / "99 - Modelos", dirs_exist_ok=True)
         return v
 
     def test_single_org_has_no_org_folder_and_multi_org_has(self):
         v = self.team_vault()
         self.run_tool("vault", "new", "repo", "api", vault=v)
-        self.assertTrue((v / "03 - Repositories" / "api.md").is_file())
-        self.assertFalse((v / "03 - Repositories" / "Org A").exists())
+        self.assertTrue((v / "03 - Repositorios" / "api.md").is_file())
+        self.assertFalse((v / "03 - Repositorios" / "Org A").exists())
         v2 = self.make_vault(name="pessoal", organizations=["Org A", "Org B"])
-        shutil.copytree(REPO / "templates", v2 / "99 - Templates", dirs_exist_ok=True)
+        shutil.copytree(REPO / "templates", v2 / "99 - Modelos", dirs_exist_ok=True)
         self.run_tool("vault", "new", "repo", "api", "--org", "Org B", vault=v2)
-        self.assertTrue((v2 / "03 - Repositories" / "Org B" / "api.md").is_file())
+        self.assertTrue((v2 / "03 - Repositorios" / "Org B" / "api.md").is_file())
 
     def test_cli_change_log_use_year_month_and_link_person(self):
         v = self.team_vault()
         self.run_tool("vault", "log", "feito", vault=v)
         self.run_tool("vault", "change", "Titulo", vault=v, input_text="\n\n\n\n\n\n")
         self.assertTrue(list((v / "13 - Journal" / "Dev Teste").glob("*/*/*.md")))
-        change = next((v / "08 - Changes").glob("*/*/CHG-*.md"))
+        change = next((v / "08 - Mudancas").glob("*/*/CHG-*.md"))
         self.assertIn("[[Dev Teste (Org A)]]", change.read_text(encoding="utf-8"))
         self.assertTrue((v / "15 - Team" / "Dev Teste (Org A).md").is_file())
         r = self.run_tool("vault-validate", v, vault=v)
@@ -446,7 +446,7 @@ class LayoutTests(Base):
 
     def test_validator_flags_layout_problems(self):
         v = self.team_vault()
-        write(v / "03 - Repositories" / "Org A" / "api.md", "---\ntype: repository\nname: api\norganization: Org A\n---\n# api\n")
+        write(v / "03 - Repositorios" / "Org A" / "api.md", "---\ntype: repository\nname: api\norganization: Org A\n---\n# api\n")
         write(v / "13 - Journal" / "fulano" / "2020-01-15.md", "---\ntype: journal\ntitle: d\ndate: 2020-01-15\nauthor: fulano\nstatus: completed\n---\n# d\n")
         r = self.run_tool("vault-validate", v, vault=v)
         self.assertEqual(r.returncode, 1)
@@ -459,18 +459,18 @@ class LayoutTests(Base):
         git = lambda *a, who="Fulano de Tal": subprocess.run(["git", "-c", f"user.name={who}", "-c", "user.email=a@example.com", *a],  # noqa: E731
                                                               cwd=v, env=self.env, check=True, capture_output=True)
         git("init", "-b", "main")
-        write(v / "10 - Procedures" / "Proc.md", "---\ntype: procedure\nname: Proc\n---\n# Proc\n")
+        write(v / "10 - Procedimentos" / "Proc.md", "---\ntype: procedure\nname: Proc\n---\n# Proc\n")
         git("add", "-A")
         git("commit", "-m", "um")
         self.run_tool("vault", "people", "sync", vault=v)
         self.run_tool("vault", "people", "sync", vault=v)
-        proc = (v / "10 - Procedures" / "Proc.md").read_text(encoding="utf-8")
+        proc = (v / "10 - Procedimentos" / "Proc.md").read_text(encoding="utf-8")
         self.assertEqual(proc.count('"[[Fulano de Tal (Org A)]]"'), 1)
-        write(v / "10 - Procedures" / "Outra.md", "---\ntype: procedure\nname: Outra\n---\n# Outra\n")
-        git("add", "10 - Procedures/Outra.md")
+        write(v / "10 - Procedimentos" / "Outra.md", "---\ntype: procedure\nname: Outra\n---\n# Outra\n")
+        git("add", "10 - Procedimentos/Outra.md")
         env = dict(self.env, OBSIDIAN_VAULT_PATH=str(v), VAULT_AUTHOR="Beltrana Silva")
         subprocess.run([sys.executable, "-X", "utf8", str(BIN / "vault"), "people", "sync", "--staged"], cwd=v, env=env, check=True, capture_output=True)
-        self.assertIn('"[[Beltrana Silva (Org A)]]"', (v / "10 - Procedures" / "Outra.md").read_text(encoding="utf-8"))
+        self.assertIn('"[[Beltrana Silva (Org A)]]"', (v / "10 - Procedimentos" / "Outra.md").read_text(encoding="utf-8"))
         staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=v, env=env, capture_output=True, text=True).stdout
         self.assertIn("15 - Team/Beltrana Silva (Org A).md", staged)
 
@@ -482,11 +482,11 @@ class LayoutTests(Base):
             (mount / d).mkdir(parents=True, exist_ok=True)
         write(mount / ".vault" / "config.json", json.dumps({"vault_name": "time", "generate_agent_files": False}))
         write(mount / "AGENTS.md", "# c\n")
-        for base in (pessoal / "15 - People", mount / "15 - People"):
+        for base in (pessoal / "15 - Pessoas", mount / "15 - Pessoas"):
             write(base / "Maria Souza.md", "---\ntype: person\nname: Maria Souza\n---\n# M\n")
         r = self.run_tool("vault-validate", pessoal, vault=pessoal)
         self.assertIn("nome ambíguo entre vaults 'Maria Souza.md'", r.stdout)
-        (mount / "15 - People" / "Maria Souza.md").rename(mount / "15 - People" / "Maria Souza (Org A).md")
+        (mount / "15 - Pessoas" / "Maria Souza.md").rename(mount / "15 - Pessoas" / "Maria Souza (Org A).md")
         r = self.run_tool("vault-validate", pessoal, vault=pessoal)
         self.assertNotIn("nome ambíguo", r.stdout)
 
@@ -523,10 +523,10 @@ class LayoutTests(Base):
 class TeamVaultAndAuthTests(Base):
     def test_vault_new_overrides_template_org(self):
         v = self.make_vault(organizations=["Org A"])
-        write(v / "99 - Templates" / "Server.md", "---\ntype: server\nname: \norganization: Org B\n---\n# {{name}}\n")
+        write(v / "99 - Modelos" / "Server.md", "---\ntype: server\nname: \norganization: Org B\n---\n# {{name}}\n")
         r = self.run_tool("vault", "new", "server", "app-01", vault=v)  # org única vira padrão
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        note = next((v / "04 - Servers").rglob("app-01.md")).read_text(encoding="utf-8")
+        note = next((v / "04 - Servidores").rglob("app-01.md")).read_text(encoding="utf-8")
         self.assertIn("organization: Org A", note)
         self.assertNotIn("Org B", note)
 
@@ -596,7 +596,7 @@ class TestPromptInjection(Base):
     def validate(self, v):
         return self.run_tool("vault-validate", v, vault=v)
 
-    def note(self, v, body, name="10 - Procedures/Nota.md"):
+    def note(self, v, body, name="10 - Procedimentos/Nota.md"):
         write(v / name, "---\ntype: procedure\n---\n" + body)
 
     def test_hidden_content_fails(self):
@@ -620,7 +620,7 @@ class TestPromptInjection(Base):
         v = self.make_vault()
         self.note(v, "Equipe 👨‍💻 ok\n<!-- rascunho da seção 2 -->\n```css\n.x { display: none; }\n```\n"
                      "hash 78eaa8aee06aaff7c56708a6d28294da896697c1799d78eaa8aee06aaff7c567\n")
-        write(v / "90 - Files" / "Sources" / "chat.md", "mensagem⁠ exportada " + "QWJjRGVm" * 20 + "\n")
+        write(v / "90 - Arquivos" / "Fontes" / "chat.md", "mensagem⁠ exportada " + "QWJjRGVm" * 20 + "\n")
         r = self.validate(v)
         self.assertEqual(r.returncode, 0, r.stdout)
 
@@ -636,22 +636,22 @@ class TestPromptInjection(Base):
     def test_team_config_cannot_redirect_local_secrets(self):
         p = self.make_vault(name="personal", shared_mounts=[{"path": "80 - Shared Vaults/Time", "organization": "Time"}])
         team = {"git_https_auth": [{"host_contains": "git.example.com", "token_file": "~/.ssh/id_ed25519", "token_env": "AWS_SECRET"}],
-                "agent_backup": {"dest": "10 - Procedures/backup"}, "journal": {"dir": "../../fora"},
-                "layout": {"people_dir": ".git", "date_folders": ["08 - Changes", "/etc"]}}
+                "agent_backup": {"dest": "10 - Procedimentos/backup"}, "journal": {"dir": "../../fora"},
+                "layout": {"people_dir": ".git", "date_folders": ["08 - Mudancas", "/etc"]}}
         for name, extra in (("personal/80 - Shared Vaults/Time", {}), ("solo", {"shared_repo": True})):
             v = self.make_vault(name=name, **team, **extra)
             cfg = vaultcfg.load(v)
             self.assertEqual(cfg["git_https_auth"], [{"host_contains": "git.example.com"}])
             self.assertEqual(cfg["agent_backup"], {})
-            self.assertEqual(cfg["journal"]["dir"], "13 - Meetings")
+            self.assertEqual(cfg["journal"]["dir"], "13 - Reunioes")
             self.assertEqual(cfg["layout"]["people_dir"], "")
-            self.assertEqual(cfg["layout"]["date_folders"], ["08 - Changes"])
+            self.assertEqual(cfg["layout"]["date_folders"], ["08 - Mudancas"])
         self.assertEqual(vaultcfg.load(p)["git_https_auth"], [])
 
     def test_sync_agents_drops_comments_from_rules(self):
         v = self.make_vault(name="personal", generate_agent_files=True)
-        write(v / "07 - Infrastructure" / "AI" / "Shared Agent Policy.md", "---\ntype: procedure\n---\n# Política\n")
-        write(v / "07 - Infrastructure" / "AI" / "Agent Rules.md",
+        write(v / "07 - Infraestrutura" / "AI" / "Shared Agent Policy.md", "---\ntype: procedure\n---\n# Política\n")
+        write(v / "07 - Infraestrutura" / "AI" / "Agent Rules.md",
               "---\ntype: procedure\n---\n# Agent Rules\n\n13. Regra visível\n<!-- regra-escondida -->\n")
         r = self.run_tool("sync-agents", "--quiet", vault=v)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -688,7 +688,7 @@ class TestStopHookTeamVault(Base):
 
     def test_protected_file_blocks_and_content_commits_without_push(self):
         write(self.m / "AGENTS.md", "# Contrato\nNova regra\n")
-        write(self.m / "10 - Procedures" / "Novo.md", "---\ntype: procedure\n---\n# Novo\n")
+        write(self.m / "10 - Procedimentos" / "Novo.md", "---\ntype: procedure\n---\n# Novo\n")
         out = self.stop()
         self.assertEqual(out.get("decision"), "continue")
         self.assertIn("AGENTS.md", out["reason"])
@@ -699,6 +699,72 @@ class TestStopHookTeamVault(Base):
         self.assertIn("sem push", out.get("systemMessage", ""))
         self.assertEqual(self.git("rev-list", "--count", "HEAD", cwd=self.m).stdout.strip(), "2")
         self.assertEqual(self.git("rev-list", "--count", "main", cwd=self.origin).stdout.strip(), "1")
+
+
+class TestFolderLayout(Base):
+    def root_vault(self):
+        """Layout recomendado: conteúdo pessoal em Pessoal/ e vault de time ao lado, na raiz."""
+        cfg = {"folders": {"preset": "pt-BR", "root": "Pessoal"}, "shared_mounts": [{"path": "Time", "organization": "Time"}]}
+        v = self.tmp / "work"
+        names = [f"Pessoal/{vaultcfg.FOLDER_PRESETS['pt-BR'][r]}" for r in vaultcfg.FOLDER_ORDER]
+        v = self.make_vault(name="work", expected_dirs=names, **cfg)
+        (v / ".vault" / "config.json").write_text(json.dumps({"vault_name": "work", "generate_agent_files": False, **cfg}), encoding="utf-8")
+        m = self.make_vault(name="work/Time", shared_repo=True, folders={"preset": "pt-BR", "meetings": "13 - Diario"},
+                            journal={"dir": "13 - Diario", "per_author": True, "type": "journal"})
+        (m / "13 - Reunioes").rename(m / "13 - Diario")
+        return v, m
+
+    def test_root_layout_validates_and_writes_under_root(self):
+        v, m = self.root_vault()
+        cfg = vaultcfg.load(v)
+        self.assertEqual(cfg["expected_dirs"][8], "Pessoal/08 - Mudancas")
+        self.assertEqual(cfg["journal"]["dir"], "Pessoal/13 - Reunioes")
+        self.assertEqual(cfg["policy_note"], "Pessoal/07 - Infraestrutura/AI/Shared Agent Policy.md")
+        write(v / "Pessoal" / "04 - Servidores" / "app-01.md", "---\ntype: server\nenvironment: production\n---\n")
+        write(m / "04 - Servidores" / "srv-time.md", "---\ntype: server\nenvironment: production\n---\n")
+        r = self.run_tool("vault-validate", v, vault=v)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        write(v / "Pessoal" / "04 - Servidores" / "sem-env.md", "---\ntype: server\n---\n")
+        r = self.run_tool("vault-validate", v, vault=v)
+        self.assertIn("sem-env.md: Server missing 'environment'", r.stdout)
+        (v / "Pessoal" / "04 - Servidores" / "sem-env.md").unlink()
+        self.assertEqual(self.run_tool("vault", "log", "entrada", vault=v).returncode, 0)
+        self.assertTrue(list((v / "Pessoal" / "13 - Reunioes").glob("*.md")))
+        self.assertFalse((v / "13 - Reunioes").exists())
+
+    @unittest.skipUnless(shutil.which("node"), "node ausente")
+    def test_mcp_uses_root_and_team_names(self):
+        v, m = self.root_vault()
+        for vault in (v, m):
+            env = dict(self.env, OBSIDIAN_VAULT_PATH=str(vault))
+            msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                    {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "create_change_record", "arguments": {
+                        "title": "T", "server": "s", "service": "s", "project": "P", "description": "d"}}}]
+            r = subprocess.run(["node", str(REPO / "mcp-server" / "index.js")], input="\n".join(map(json.dumps, msgs)) + "\n",
+                               env=env, capture_output=True, text=True, encoding="utf-8", timeout=30)
+            self.assertIn("CHG-", r.stdout)
+        self.assertTrue(list((v / "Pessoal" / "08 - Mudancas").rglob("CHG-*.md")))
+        self.assertTrue(list((m / "08 - Mudancas").rglob("CHG-*.md")))
+        self.assertFalse((v / "08 - Mudancas").exists())
+
+    def test_rendered_policy_and_obsidian_config_follow_root(self):
+        v, _ = self.root_vault()
+        cfg = vaultcfg.load(v)
+        text = vaultcfg.render_folders(cfg, "ver `08 - Changes/` e `99 - Modelos/` e Pessoal/16 - Ferramentas")
+        self.assertEqual(text, "ver `Pessoal/08 - Mudancas/` e `Pessoal/99 - Modelos/` e Pessoal/16 - Ferramentas")
+        r = self.run_tool("sync-agents", "--quiet", vault=v)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        policy = (self.home / ".config" / "obsidian-config" / "agents" / "policy.md").read_text(encoding="utf-8")
+        self.assertIn("Pessoal/08 - Mudancas", policy)
+        self.assertIn("agents/policy.md", (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_en_preset_keeps_old_names(self):
+        v = self.make_vault(name="old", folders={"preset": "en"}, expected_dirs=[vaultcfg.FOLDER_PRESETS["en"][r] for r in vaultcfg.FOLDER_ORDER])
+        cfg = vaultcfg.load(v)
+        self.assertEqual(vaultcfg.fpath(cfg, "changes"), "08 - Changes")
+        self.assertEqual(cfg["journal"]["dir"], "13 - Meetings")
+        self.assertEqual(self.run_tool("vault", "log", "x", vault=v).returncode, 0)
+        self.assertTrue(list((v / "13 - Meetings").glob("*.md")))
 
 
 if __name__ == "__main__":

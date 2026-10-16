@@ -49,6 +49,7 @@ def get_gemini_embedding(text, api_key):
 class SemanticEngine:
     def __init__(self, vault_path, force_local=False):
         self.vault_path = Path(vault_path)
+        self.templates_prefix = vaultcfg.fpath(vaultcfg.load(self.vault_path), "templates") + "/"
         self.cache_dir = self.vault_path / ".vault"  # cache derivado do conteúdo: fica no vault, nunca neste repo
         self.cache_path = self.cache_dir / CACHE_FILE_NAME
         self.api_key = os.environ.get("GEMINI_API_KEY") if not force_local else None
@@ -126,7 +127,7 @@ class SemanticEngine:
         for p in md_files:
             rel = str(p.relative_to(self.vault_path))
             # Ignora templates se desejar
-            if rel.startswith("99 - Templates/"):
+            if rel.replace(os.sep, "/").startswith(self.templates_prefix):
                 continue
 
             try:

@@ -49,42 +49,56 @@ Para desfazer a instalação sem tocar no conteúdo do vault: `python3 uninstall
 
 ## Taxonomia
 
-```
-00 - Dashboard        08 - Changes/YYYY     15 - People
-01 - Organizations    09 - Incidents        16 - Tools
-02 - Projects         10 - Procedures       90 - Files (Sources, Attachments)
-03 - Repositories     11 - Architecture     99 - Templates
-04 - Servers          12 - Decisions
-05 - Services         13 - Meetings
-06 - Applications     14 - Research
-07 - Infrastructure
-```
+Padrão em pt-BR (preset `pt-BR`). O preset `en` mantém os nomes antigos em inglês (`00 - Dashboard`, `08 - Changes`...). Os dois ficam em `lib/folders.json`, lido pelas ferramentas Python e pelo MCP.
 
-`expected_dirs` no config muda a lista. Toda nota tem frontmatter com `type`. Servidores exigem `environment`. Changes exigem `id`, `date`, `status` e `server`, `service` ou `project`.
+| Pasta | Papel | Para que serve |
+|---|---|---|
+| `00 - Painel` | `dashboard` | Painéis com Dataview; ponto de entrada |
+| `01 - Organizacoes` | `organizations` | Uma nota por organização |
+| `02 - Projetos` | `projects` | Projetos, escopo, pendências (`- [ ] #todo/...`) |
+| `03 - Repositorios` | `repositories` | Um repositório git por nota: stack, comandos, CI |
+| `04 - Servidores` | `servers` | Hosts: IP, acesso, ambiente (`environment` obrigatório) |
+| `05 - Servicos` | `services` | Serviços e daemons: porta, servidor, dependências |
+| `06 - Aplicacoes` | `applications` | Aplicações de negócio e onde rodam |
+| `07 - Infraestrutura` | `infrastructure` | Rede, VPN, observabilidade, política dos agentes (`AI/`) |
+| `08 - Mudancas/AAAA` | `changes` | Change records `CHG-AAAA-MM-DD-NNN` |
+| `09 - Incidentes` | `incidents` | Incidentes e post-mortems |
+| `10 - Procedimentos` | `procedures` | Runbooks e procedimentos |
+| `11 - Arquitetura` | `architecture` | Diagramas, canvas de topologia, Excalidraw |
+| `12 - Decisoes` | `decisions` | ADRs |
+| `13 - Reunioes` | `meetings` | Diário e atas (`journal.dir`) |
+| `14 - Pesquisa` | `research` | Pesquisas e sínteses de fontes (`vault ingest`) |
+| `15 - Pessoas` | `people` | Uma nota por pessoa |
+| `16 - Ferramentas` | `tools` | Scripts e ferramentas de uso do desenvolvedor |
+| `90 - Arquivos` | `files` | Anexos e fontes brutas imutáveis (`90 - Arquivos/Fontes`) |
+| `99 - Modelos` | `templates` | Templates usados por `vault new` e pelo Templater |
+
+`folders` no config troca o preset, renomeia papéis isolados e define `root`, a subpasta onde fica o conteúdo. Com `root: "Pessoal"`, `08 - Mudancas` vira `Pessoal/08 - Mudancas`, e os vaults de time ficam ao lado de `Pessoal/` na raiz. `expected_dirs`, `policy_note`, `agent_rules_note` e `journal.dir` derivam do mapa quando o config não os define. Toda nota tem frontmatter com `type`. Servidores exigem `environment`. Changes exigem `id`, `date`, `status` e `server`, `service` ou `project`.
 
 ## `.vault/config.json`
 
 | Campo | Default | Uso |
 |---|---|---|
 | `vault_name` | `Work` | Nome do vault (também identifica guards locais) |
-| `organizations` | `[]` | Organizações. Vazio: lê `01 - Organizations/` |
+| `organizations` | `[]` | Organizações. Vazio: lê a pasta de organizações |
+| `folders` | `preset: pt-BR`, `root: ""` | Mapa de pastas: `preset` (`pt-BR` ou `en`), `root` e `<papel>: <nome>` para renomear um papel |
 | `expected_dirs` | taxonomia acima | Pastas obrigatórias |
 | `projects_dir` | `~/Projects` | Onde `vault-health` procura repositórios não catalogados |
-| `policy_note` | `07 - Infrastructure/AI/Shared Agent Policy.md` | Política. O checksum dela vai nos arquivos gerados |
-| `agent_rules_note` | `07 - Infrastructure/AI/Agent Rules.md` | Regras privadas anexadas às instruções base (numere a partir de 13) |
+| `policy_note` | `<root>/07 - Infraestrutura/AI/Shared Agent Policy.md` | Política. O checksum dela vai nos arquivos gerados |
+| `agent_rules_note` | `<root>/07 - Infraestrutura/AI/Agent Rules.md` | Regras privadas anexadas às instruções base (numere a partir de 13) |
 | `policy_topics` | `[]` | Seções esperadas na política (só aviso) |
 | `generate_agent_files` | `true` | Gera `CLAUDE.md`, `GEMINI.md` e `AGENTS.md`. Vault de time com `AGENTS.md` próprio usa `false` |
 | `mcp_name` | `obsidian-vault` | Nome do MCP deste vault |
 | `change_id_author` | `false` | IDs `CHG-YYYY-MM-DD-<autor>-NNN` (vault de time) |
-| `journal` | `13 - Meetings`, sem autor | Diário: `dir`, `per_author`, `type` |
+| `journal` | `<root>/13 - Reunioes`, sem autor | Diário: `dir`, `per_author`, `type` |
 | `shared_repo` | `false` | Vault de time: o install não escreve config do Obsidian, templates nem notas de política no repositório; só baixa plugins |
 | `auto_pull` | igual a `shared_repo` | O MCP faz `fetch` + `merge --ff-only` antes de cada ferramenta. Não faz rebase: se houver commit local divergente ou falha de rede, avisa na saída |
 | `auto_pull_ttl_seconds` | `300` | Intervalo mínimo entre dois fetches do MCP. `VAULT_AUTO_PULL_TTL_SECONDS` sobrepõe |
 | `privacy_checks` | `false` | Bloqueia e-mail, telefone, caminho de home, senha literal e Dataview sem escopo |
-| `shared_mounts` | `[]` | Vaults de time montados como subpasta: `{"path", "organization", "roster"}` |
+| `shared_mounts` | `[]` | Vaults de time montados como subpasta: `{"path", "organization", "roster"}`. Recomendado: `path` na raiz, ao lado de `folders.root` |
 | `git` | `origin`/`main`, push automático | Usado por `vault sync` e pelo hook de encerramento |
 | `git_https_auth` | `[]` | Header HTTPS por host: `{host_contains, user, token_env?, token_file?}`. Token resolvido por variável de ambiente, arquivo ou cofre do git (`vault auth setup`, guiado). Nunca grava credencial. O MCP de um vault de time usa as regras dele e, se não houver, as do vault pessoal que o monta |
-| `layout` | `org_subfolders: null`, `date_folders: []`, `people_dir: ""`, `people_aliases: {}`, `people_suffix: null` | Organização das pastas. `org_subfolders`: pasta por organização em 03, 04, 14 etc., por padrão só com mais de uma organização. `date_folders`: pastas que ganham `AAAA/MM` (ex.: `08 - Changes`, `13 - Journal`). `people_dir`: uma nota de pessoa por membro, ligada ao autor por `author:`; changes e diários citam `[[Pessoa]]`. `people_aliases`: slug do git para nome da nota. `people_suffix`: nota `Nome (Org)` para o link não colidir com a mesma pessoa em outro vault montado junto (padrão: ligado com uma só organização). `vault people sync` cria as notas que faltam e preenche `authors:` de cada nota com quem a escreveu, pelo histórico do git; o pre-commit do vault faz o mesmo com o autor do commit. O validador falha se o layout for violado |
+| `layout` | `org_subfolders: null`, `date_folders: []`, `people_dir: ""`, `people_aliases: {}`, `people_suffix: null` | Organização das pastas. `org_subfolders`: pasta por organização em 03, 04, 14 etc., por padrão só com mais de uma organização. `date_folders`: pastas que ganham `AAAA/MM` (ex.: `08 - Mudancas`, `13 - Diario`). `people_dir`: uma nota de pessoa por membro, ligada ao autor por `author:`; changes e diários citam `[[Pessoa]]`. `people_aliases`: slug do git para nome da nota. `people_suffix`: nota `Nome (Org)` para o link não colidir com a mesma pessoa em outro vault montado junto (padrão: ligado com uma só organização). `vault people sync` cria as notas que faltam e preenche `authors:` de cada nota com quem a escreveu, pelo histórico do git; o pre-commit do vault faz o mesmo com o autor do commit. O validador falha se o layout for violado |
 | `agent_backup` | `{}` | Snapshot das configs dos agentes: `enabled`, `dest`, `keep` (20), `max_file_kb` (2048), `include` (dir -> globs). Ver `bin/agent-backup` |
 | `default_change_server` | `""` | Padrão de `vault change` |
 | `guard` | `allow: []`, `common_org_words: []` | Ajustes do guard |
@@ -95,7 +109,19 @@ O autor vem de `VAULT_AUTHOR` ou de `git config user.name`.
 
 Um vault de time é um repositório próprio com `.vault/config.json` (por exemplo `change_id_author: true`, `journal.per_author: true`, `privacy_checks: true`, `generate_agent_files: false`, `mcp_name`). Ele não carrega cópia de ferramentas. Instalar este repositório é opcional: quem já tem o próprio setup de Obsidian só clona e abre o vault. Quem instala ganha validação no pre-commit, MCP e CLI. Para valer para todos, a CI do vault de time clona este repositório e roda `bin/vault-validate` a cada push.
 
-Quem também tem vault pessoal monta o vault do time como subpasta de `80 - Shared Vaults/`, um vault por projeto (ex.: `80 - Shared Vaults/Time A`). A pasta `80 - Shared Vaults/` fica no `.gitignore` do vault pessoal, e cada vault é declarado em `shared_mounts`. Assim a numeração do vault pessoal continua livre e os vaults de outros projetos ficam juntos num só lugar. Com isso:
+Quem também tem vault pessoal usa este layout, aberto como um vault só no Obsidian:
+
+```
+Work/                    repositório git do vault pessoal; é a pasta aberta no Obsidian
+├── .obsidian/           config do Obsidian (vale para os três)
+├── .vault/config.json   config pessoal: folders.root = "Pessoal", shared_mounts = ["Time A", "Time B"]
+├── .obsidian-config/    clone deste repositório (ignorado pelo git)
+├── Pessoal/             conteúdo pessoal, com as pastas numeradas
+├── Time A/              vault do time A: repositório git próprio, no .gitignore do pessoal
+└── Time B/              vault do time B: idem
+```
+
+Cada vault de time é declarado em `shared_mounts` e listado no `.gitignore` do pessoal. Com isso:
 
 - `vault-validate` do vault pessoal valida o mount com a config do próprio mount.
 - `sync-agents` registra um MCP para cada vault (`mcp_name` de cada um).

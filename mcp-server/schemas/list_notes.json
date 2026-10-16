@@ -1,6 +1,6 @@
 {
   "name": "list_notes",
-  "description": "List notes in the vault filtered by type (server, project, change, procedure, repository, application) or organization (as definidas em 01 - Organizations).",
+  "description": "List notes in the vault filtered by type (server, project, change, procedure, repository, application) or organization (as definidas na pasta de organizações).",
   "parameters": {
     "type": "object",
     "properties": {
@@ -10,11 +10,11 @@
       },
       "organization": {
         "type": "string",
-        "description": "Filter by organization (nome da nota em 01 - Organizations ou 'Cross-Organization')."
+        "description": "Filter by organization (nome da nota na pasta de organizações ou 'Cross-Organization')."
       },
       "folder": {
         "type": "string",
-        "description": "Filter by vault folder prefix (e.g. '08 - Changes/2026')."
+        "description": "Filter by vault folder prefix (e.g. '08 - Mudancas/2026')."
       },
       "limit": {
         "type": "integer",

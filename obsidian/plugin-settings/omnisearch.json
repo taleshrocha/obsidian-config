@@ -41,7 +41,7 @@
   "DANGER_forceSaveCache": false,
   "version": "1.31.0",
   "ignoreFolders": [
-    "16 - Tools/Cross-Organization/.venv",
+    "16 - Ferramentas/Cross-Organization/.venv",
     "node_modules",
     ".git"
   ]

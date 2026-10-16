@@ -37,10 +37,15 @@ def configure(vault_dir):
 
 
 def _rule_path(rel_path):
+    """Caminho comparável com os nomes de pasta: sem o mount e sem folders.root."""
     for m in SHARED_MOUNTS:
         if rel_path.startswith(m + "/"):
             return rel_path[len(m) + 1:]
-    return rel_path
+    return vaultcfg.strip_root(CFG, rel_path)
+
+
+def F(role):
+    return vaultcfg.fname(CFG, role)
 
 VALID_ENVIRONMENTS = {"production", "homologation", "testing", "development", "local"}
 
@@ -154,7 +159,7 @@ def check_files(vault_dir):
 
     for rel_path, full_path in all_files:
         rule_path = _rule_path(rel_path)
-        is_template = rule_path.startswith("99 - Templates/")
+        is_template = rule_path.startswith(F("templates") + "/")
         props, body = parse_frontmatter(full_path)
         
         # Secret scan (run on all files including templates; notas em privacy_exempt_paths ficam de fora)
@@ -166,7 +171,7 @@ def check_files(vault_dir):
                     secret_errors.append(f"{rel_path}: Potentially exposed secret detected: {match.group(0)[:15]}...")
 
         is_excalidraw = rel_path.endswith(".excalidraw.md") or (props and "excalidraw-plugin" in props)
-        is_raw_source = rule_path.startswith("90 - Files/Sources/")
+        is_raw_source = rule_path.startswith(F("sources") + "/")
         is_agent_contract = rule_path in {"CLAUDE.md", "GEMINI.md", "AGENTS.md", "README.md"}
         if is_template or is_excalidraw or is_raw_source or is_agent_contract:
             # Skip property content checks for template, Excalidraw, raw sources, and root agent contracts
@@ -180,7 +185,7 @@ def check_files(vault_dir):
             prop_errors.append(f"{rel_path}: Missing 'type' property in frontmatter")
 
         # Change metadata check
-        if rule_path.startswith("08 - Changes/"):
+        if rule_path.startswith(F("changes") + "/"):
             if "id" not in props or not props["id"]:
                 change_errors.append(f"{rel_path}: Change missing 'id'")
             if "date" not in props or not props["date"]:
@@ -191,7 +196,7 @@ def check_files(vault_dir):
                 change_errors.append(f"{rel_path}: Change missing 'server', 'project' or 'service'")
 
         # Server metadata check
-        if rule_path.startswith("04 - Servers/"):
+        if rule_path.startswith(F("servers") + "/"):
             if props.get("type") != "server":
                 server_errors.append(f"{rel_path}: type must be 'server', got '{props.get('type')}'")
             env = props.get("environment")
@@ -207,7 +212,7 @@ def check_files(vault_dir):
     inline_code_pattern = re.compile(r"`[^`\n]+`")
 
     for rel_path, full_path in all_files:
-        if _rule_path(rel_path).startswith("99 - Templates/"):
+        if _rule_path(rel_path).startswith(F("templates") + "/"):
             continue
         with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
@@ -341,8 +346,8 @@ STRICT_NAMES = {"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
 
 
 def _is_strict(rule_path):
-    return (rule_path in STRICT_NAMES or rule_path.startswith("99 - Templates/") or rule_path == ".vault/config.json"
-            or rule_path == CFG.get("policy_note"))
+    return (rule_path in STRICT_NAMES or rule_path.startswith(F("templates") + "/") or rule_path == ".vault/config.json"
+            or rule_path == vaultcfg.strip_root(CFG, CFG.get("policy_note", "")))
 
 
 def _b64_blobs(text, min_len):
@@ -355,7 +360,7 @@ def _b64_blobs(text, min_len):
 
 def hidden_content_errors(rel, text, rule_path):
     errors = []
-    raw_source = rule_path.startswith("90 - Files/Sources/")
+    raw_source = rule_path.startswith(F("sources") + "/")
     strict = _is_strict(rule_path)
     for n, line in enumerate(text.splitlines(), 1):
         for m in BIDI_TAG_RE.finditer(line):
@@ -386,7 +391,7 @@ def hidden_content_errors(rel, text, rule_path):
     if HIDDEN_CSS_RE.search(visible):
         errors.append(f"{rel}: texto escondido por HTML/CSS (hidden, display:none, cor branca, fonte 0). Remova")
     for blob in _b64_blobs(text, 60 if strict else 100):
-        errors.append(f"{rel}: bloco base64 de {len(blob)} caracteres ({blob[:12]}...). Instrução codificada passa despercebida; remova ou mova para 90 - Files/Sources")
+        errors.append(f"{rel}: bloco base64 de {len(blob)} caracteres ({blob[:12]}...). Instrução codificada passa despercebida; remova ou mova para {F('sources')}")
         break
     return errors
 
@@ -436,8 +441,7 @@ def check_agent_sync(vault_dir):
         return ["Agent instruction files desynchronized with Shared Agent Policy.md:"] + [f"    {l}" for l in lines] + ["    👉 Fix by running: vault sync-agents"]
     return []
 
-ORG_FOLDERS = ["02 - Projects", "03 - Repositories", "04 - Servers", "05 - Services", "06 - Applications",
-               "10 - Procedures", "14 - Research", "16 - Tools"]
+ORG_FOLDERS = ["projects", "repositories", "servers", "services", "applications", "procedures", "research", "tools"]
 
 
 def _note_date(path, props):
@@ -457,7 +461,7 @@ def check_layout(vault_dir):
     strict_orgs = layout.get("org_subfolders") is False or (layout.get("org_subfolders") is None and CFG.get("shared_repo"))
     if strict_orgs and not vaultcfg.org_subfolders(CFG):
         orgs = {o.lower() for o in vaultcfg.real_orgs(CFG)}
-        for folder in ORG_FOLDERS:
+        for folder in (vaultcfg.fpath(CFG, r) for r in ORG_FOLDERS):
             base = root / folder
             if base.is_dir():
                 for sub in sorted(p for p in base.iterdir() if p.is_dir() and p.name.lower() in orgs):
@@ -487,7 +491,8 @@ def check_layout(vault_dir):
             jd = root / journal.get("dir", "")
             if jd.is_dir():
                 authors |= {p.name for p in jd.iterdir() if p.is_dir()}
-        for f in (root / "08 - Changes").rglob("*.md") if (root / "08 - Changes").is_dir() else []:
+        changes = vaultcfg.fdir(CFG, "changes")
+        for f in changes.rglob("*.md") if changes.is_dir() else []:
             props, _ = parse_frontmatter(str(f))
             if props and props.get("author"):
                 authors.add(props["author"])
@@ -497,7 +502,7 @@ def check_layout(vault_dir):
     return errors
 
 
-DUP_IGNORE_DIRS = {"99 - Templates", "90 - Files", "node_modules", ".git", ".obsidian", ".obsidian-config", ".claude", ".gemini",
+DUP_IGNORE_DIRS = {p[r] for p in vaultcfg.FOLDER_PRESETS.values() for r in ("templates", "files")} | {"node_modules", ".git", ".obsidian", ".obsidian-config", ".claude", ".gemini",
                    ".vault", ".trash", ".mirrors", ".github"}
 DUP_IGNORE_NAMES = {"agents.md", "claude.md", "gemini.md", "readme.md", "chat.md"}
 

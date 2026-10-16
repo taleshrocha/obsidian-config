@@ -2,13 +2,27 @@
   "vault_name": "Work",
   "organizations": [],
   "projects_dir": "~/Projects",
+  "folders": {
+    "preset": "pt-BR",
+    "root": ""
+  },
   "shared_mounts": [],
-  "policy_note": "07 - Infrastructure/AI/Shared Agent Policy.md",
-  "agent_rules_note": "07 - Infrastructure/AI/Agent Rules.md",
   "policy_topics": [],
-  "git": {"remote": "origin", "branch": "main", "auto_push": true},
+  "git": {
+    "remote": "origin",
+    "branch": "main",
+    "auto_push": true
+  },
   "git_https_auth": [],
-  "layout": {"org_subfolders": null, "date_folders": [], "people_dir": "", "people_aliases": {}},
+  "layout": {
+    "org_subfolders": null,
+    "date_folders": [],
+    "people_dir": "",
+    "people_aliases": {}
+  },
   "default_change_server": "",
-  "guard": {"allow": [], "common_org_words": []}
+  "guard": {
+    "allow": [],
+    "common_org_words": []
+  }
 }

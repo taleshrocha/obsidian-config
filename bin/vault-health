@@ -5,7 +5,7 @@ vault-health: Obsidian Work Vault Health & Graph Auditor
 Audita a saúde do vault:
 1. Grafo e Conexões: Identifica notas órfãs (0 backlinks) e densidade de conexões.
 2. Atualização Temporal: Alerta sobre notas com 'last_verified' > N dias (default: 60) ou ausentes em infraestrutura.
-3. Sincronização de Filesystem: Identifica repositórios Git em disco (o diretório de projetos (projects_dir)) ainda não catalogados em 03 - Repositories.
+3. Sincronização de Filesystem: Identifica repositórios Git em disco (o diretório de projetos (projects_dir)) ainda não catalogados em 03 - Repositorios.
 4. Integridade Estrutural: Opcionalmente executa o validador oficial (validate-obsidian-work-vault).
 
 Uso:
@@ -22,6 +22,7 @@ from pathlib import Path
 from datetime import datetime
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 import vaultcfg  # noqa: E402
+import functools  # noqa: E402
 
 # ANSI Colors
 CYAN = "\033[96m"
@@ -31,6 +32,15 @@ RED = "\033[91m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
 RESET = "\033[0m"
+@functools.lru_cache(maxsize=None)
+def _cfg(vault_dir):
+    return vaultcfg.load(vault_dir)
+
+
+def P(vault_dir, role):
+    """Pasta de um papel relativa ao vault, conforme o mapa de pastas do config."""
+    return vaultcfg.fpath(_cfg(str(vault_dir)), role)
+
 
 def resolve_vault_path(custom_path=None):
     return vaultcfg.vault_dir(custom_path)
@@ -64,7 +74,7 @@ def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False)
     link_pattern = re.compile(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]')
 
     now = datetime.now()
-    critical_prefixes = ("04 - Servers/", "05 - Services/", "07 - Infrastructure/")
+    critical_prefixes = tuple(P(vault_dir, r) + "/" for r in ("servers", "services", "infrastructure"))
 
     for p in md_files:
         rel = p.relative_to(vault_dir)
@@ -111,7 +121,7 @@ def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False)
 
     # 2. Orphans check
     # Ignore templates, daily notes / meetings, dashboard, README, setup
-    exempt_patterns = ["99 - Templates", "13 - Meetings", "00 - Dashboard", "README", "setup.sh"]
+    exempt_patterns = [P(vault_dir, "templates"), _cfg(str(vault_dir))["journal"]["dir"], P(vault_dir, "dashboard"), "README", "setup.sh"]
     for stem, rel in targets.items():
         if "/" in stem:
             continue
@@ -125,7 +135,7 @@ def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False)
     # 3. Uncataloged repositories on disk
     if projects_dir and os.path.isdir(projects_dir):
         p_path = Path(projects_dir)
-        repo_notes = list((vault_dir / "03 - Repositories").rglob("*.md"))
+        repo_notes = list((vault_dir / P(vault_dir, "repositories")).rglob("*.md"))
         cataloged = set()
         for r in repo_notes:
             cataloged.add(r.stem.lower())
@@ -148,7 +158,7 @@ def audit_vault(vault_dir, projects_dir=None, max_days=60, run_validation=False)
 
     # 4. Optional validator check
     if run_validation:
-        validator_script = vault_dir / "16 - Tools" / ".Cross-Organization" / "bin" / "validate-obsidian-work-vault"
+        validator_script = vault_dir / P(vault_dir, "tools") / ".Cross-Organization" / "bin" / "validate-obsidian-work-vault"
         if not validator_script.is_file():
             validator_script = REPO_ROOT / "bin" / "vault-validate"
         if validator_script.is_file() and os.access(validator_script, os.X_OK):
@@ -231,7 +241,7 @@ def print_report(results, use_color=True):
 
     print(f"\n{c['bold']}💾 Sincronização com Repositórios em Disco:{c['reset']}")
     if results["uncataloged_repos"]:
-        print(f"  {c['yellow']}⚠️  {len(results['uncataloged_repos'])} repositórios Git em o diretório de projetos (projects_dir) não catalogados em '03 - Repositories':{c['reset']}")
+        print(f"  {c['yellow']}⚠️  {len(results['uncataloged_repos'])} repositórios Git em o diretório de projetos (projects_dir) não catalogados em '03 - Repositorios':{c['reset']}")
         for u in results["uncataloged_repos"][:8]:
             print(f"    - {u}")
         if len(results["uncataloged_repos"]) > 8:

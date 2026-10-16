@@ -98,7 +98,8 @@ def changed_paths(repo: Path):
 
 def team_content_dirs(shared: Path):
     """Pastas de conteúdo do vault de time: expected_dirs dele, menos os templates."""
-    return [d for d in vaultcfg.load(shared)["expected_dirs"] if d != "99 - Templates"]
+    cfg = vaultcfg.load(shared)
+    return [d for d in cfg["expected_dirs"] if d != vaultcfg.fpath(cfg, "templates")]
 
 
 def commit_shared_content(mount, shared: Path):

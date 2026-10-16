@@ -1,7 +1,7 @@
 {
   "data_version": 2,
   "command_timeout": 5,
-  "templates_folder": "99 - Templates",
+  "templates_folder": "99 - Modelos",
   "templates_pairs": [],
   "trigger_on_file_creation_mode": "folder",
   "auto_jump_to_cursor": true,
@@ -10,32 +10,32 @@
   "user_scripts_folder": "",
   "folder_templates": [
     {
-      "folder": "04 - Servers",
-      "template": "99 - Templates/Server.md"
+      "folder": "04 - Servidores",
+      "template": "99 - Modelos/Server.md"
     },
     {
-      "folder": "05 - Services",
-      "template": "99 - Templates/Service.md"
+      "folder": "05 - Servicos",
+      "template": "99 - Modelos/Service.md"
     },
     {
-      "folder": "06 - Applications",
-      "template": "99 - Templates/Application.md"
+      "folder": "06 - Aplicacoes",
+      "template": "99 - Modelos/Application.md"
     },
     {
-      "folder": "08 - Changes",
-      "template": "99 - Templates/Change.md"
+      "folder": "08 - Mudancas",
+      "template": "99 - Modelos/Change.md"
     },
     {
-      "folder": "09 - Incidents",
-      "template": "99 - Templates/Incident.md"
+      "folder": "09 - Incidentes",
+      "template": "99 - Modelos/Incident.md"
     },
     {
-      "folder": "10 - Procedures",
-      "template": "99 - Templates/Procedure.md"
+      "folder": "10 - Procedimentos",
+      "template": "99 - Modelos/Procedure.md"
     },
     {
-      "folder": "12 - Decisions",
-      "template": "99 - Templates/ADR.md"
+      "folder": "12 - Decisoes",
+      "template": "99 - Modelos/ADR.md"
     }
   ],
   "file_templates": [],

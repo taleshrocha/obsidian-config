@@ -16,8 +16,8 @@ O vault vem de `OBSIDIAN_VAULT_PATH` ou de `~/.config/obsidian-config/config.jso
 | `list_notes` | Filtra por `type`, `organization` ou pasta |
 | `get_backlinks` | Notas que apontam para uma nota |
 | `get_architecture_topology` | Servidores, serviços, aplicações e arquitetura de uma organização |
-| `create_change_record` | Cria `08 - Changes/YYYY/CHG-YYYY-MM-DD-NNN - Título.md` |
-| `append_daily_log` | Acrescenta entrada em `13 - Meetings/YYYY-MM-DD.md` |
+| `create_change_record` | Cria `08 - Mudancas/YYYY/CHG-YYYY-MM-DD-NNN - Título.md` |
+| `append_daily_log` | Acrescenta entrada em `13 - Reunioes/YYYY-MM-DD.md` |
 | `open_in_gui` | Abre a nota no Obsidian via `obsidian-cli` |
 | `validate_vault` | Roda `bin/vault-validate` |
 

@@ -194,8 +194,8 @@ def main():
     if shared:
         ok("vault compartilhado (shared_repo): templates e notas do repositório preservados")
     else:
-        tdir = vault / "99 - Templates"
-        tdir.mkdir(exist_ok=True)
+        tdir = vaultcfg.fdir(cfg, "templates")
+        tdir.mkdir(parents=True, exist_ok=True)
         for t in (REPO / "templates").glob("*.md"):
             if not (tdir / t.name).exists():
                 shutil.copy2(t, tdir / t.name)
@@ -217,12 +217,12 @@ def main():
     else:
         for f in (REPO / "obsidian").glob("*.json"):
             if f.name != "extensions.json" and (a.force_obsidian_config or not (obs / f.name).exists()):
-                shutil.copy2(f, obs / f.name)
+                (obs / f.name).write_text(vaultcfg.render_folders(cfg, f.read_text(encoding="utf-8")), encoding="utf-8")
         for f in (REPO / "obsidian" / "plugin-settings").glob("*.json"):
             dst = obs / "plugins" / f.stem / "data.json"
             dst.parent.mkdir(parents=True, exist_ok=True)
             if a.force_obsidian_config or not dst.exists():
-                shutil.copy2(f, dst)
+                dst.write_text(vaultcfg.render_folders(cfg, f.read_text(encoding="utf-8")), encoding="utf-8")
         ok(".obsidian base aplicado (existentes preservados; --force-obsidian-config sobrescreve)")
     if not a.skip_extensions:
         subprocess.call([sys.executable, "-X", "utf8", str(REPO / "lib" / "extensions.py"), str(REPO / "obsidian" / "extensions.json"), str(obs)])
@@ -274,7 +274,7 @@ def main():
         (d / "10-personal-vault-guard.py").write_text(
             python_runner(guard, {"OBSIDIAN_VAULT_PATH": personal}, [mount]), encoding="utf-8")
         ok(f"guard do vault pessoal no pre-commit de '{p}'")
-    if (personal / "01 - Organizations").is_dir():
+    if vaultcfg.fdir(vaultcfg.load(personal), "organizations").is_dir():
         d = vaultcfg.USER_CONFIG.parent / "privacy.d"
         d.mkdir(parents=True, exist_ok=True)
         (d / "10-personal-vault-guard.py").write_text(

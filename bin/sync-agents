@@ -92,6 +92,14 @@ def private_rules() -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+RENDERED_POLICY = vaultcfg.USER_CONFIG.parent / "agents" / "policy.md"
+
+
+def rendered_policy() -> str:
+    """Política base com os nomes de pasta deste vault (preset, overrides e folders.root)."""
+    return vaultcfg.render_folders(CFG, (REPO / "agents" / "policy.md").read_text(encoding="utf-8"))
+
+
 def import_ref(path) -> str:
     """@import fora de crase (crase desativa o import) e com espaços escapados."""
     return "@" + str(path).replace(" ", "\\ ")
@@ -111,7 +119,7 @@ def get_base_agent_instructions(agent_name: str, policy_hash: str = None) -> str
     if policy_hash is None:
         policy_hash = get_policy_checksum()
     orgs = vaultcfg.organizations(CFG)
-    text = BASE_TEMPLATE.read_text(encoding="utf-8")
+    text = vaultcfg.render_folders(CFG, BASE_TEMPLATE.read_text(encoding="utf-8"))
     for key, val in {
         "POLICY_HASH": policy_hash,
         "AGENT_NAME": agent_name,
@@ -119,14 +127,15 @@ def get_base_agent_instructions(agent_name: str, policy_hash: str = None) -> str
         "POLICY_NOTE": CFG["policy_note"],
         "LOCAL_POLICY": local_policy_line(),
         "ORGANIZATIONS": ", ".join(orgs) if orgs else "todas as organizações do vault",
-        "PRIVATE_RULES": private_rules(),
+        "PRIVATE_RULES": vaultcfg.render_folders(CFG, private_rules()),
         "CONFIG_DIR": str(REPO),
+        "BASE_POLICY": import_ref(RENDERED_POLICY),
     }.items():
         text = text.replace("{{" + key + "}}", val)
     text = text.replace("{{VAULT_DIR}}", str(VAULT_DIR))
     if agent_name == "Codex" or "Gemini" in agent_name:
         # Codex e Antigravity CLI não resolvem @imports: as políticas vão embutidas no arquivo.
-        text = text.rstrip() + "\n\n---\n\n" + strip_frontmatter((REPO / "agents" / "policy.md").read_text(encoding="utf-8"))
+        text = text.rstrip() + "\n\n---\n\n" + strip_frontmatter(rendered_policy())
         local = POLICY_FILE if POLICY_FILE.is_file() else (
             VAULT_DIR / "AGENTS.md" if not CFG.get("generate_agent_files", True) else None)
         if local and local.is_file():
@@ -180,6 +189,8 @@ def check_sync(vault_only=False) -> tuple[bool, list[str]]:
     errors = []
     targets = get_sync_targets(vault_only=vault_only)
 
+    if not vault_only and (not RENDERED_POLICY.is_file() or RENDERED_POLICY.read_text(encoding="utf-8") != rendered_policy()):
+        errors.append(f"Content drifted: {RENDERED_POLICY}")
     for target_path, agent_name in targets:
         if not target_path.exists():
             errors.append(f"Missing file: {target_path}")
@@ -197,6 +208,9 @@ def sync_instruction_files(quiet=False, vault_only=False):
         print(f"{BOLD}{CYAN}📝 [1/3] Synchronizing Agent Instruction Files...{RESET}")
     targets = get_sync_targets(vault_only=vault_only)
     policy_hash = get_policy_checksum()
+    if not vault_only:
+        RENDERED_POLICY.parent.mkdir(parents=True, exist_ok=True)
+        RENDERED_POLICY.write_text(rendered_policy(), encoding="utf-8")
 
     # Verify policy heading coverage
     unrecognized = check_policy_coverage()

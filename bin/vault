@@ -33,7 +33,7 @@ os.environ["OBSIDIAN_VAULT_PATH"] = str(VAULT)
 
 COMMANDS = [
     ("status, info", "Resumo do vault: notas, canvases e estado do Git"),
-    ("ingest <arquivo> [cat]", "Copia fonte bruta para 90 - Files/Sources e cria nota de síntese"),
+    ("ingest <arquivo> [cat]", "Copia fonte bruta para a pasta de fontes e cria nota de síntese"),
     ("sources, backlog", "Fontes brutas pendentes e tarefas (vault-sources)"),
     ("lint", "Validação estrita + saúde do grafo"),
     ("validate", "Validador de integridade (vault-validate)"),
@@ -43,7 +43,7 @@ COMMANDS = [
     ("outline <nota>", "Cabeçalhos da nota"),
     ("section <nota> <seção>", "Só uma seção"),
     ("links <nota>", "WikiLinks de saída"),
-    ("new <tipo> <nome> [opts]", "Nota nova a partir de 99 - Templates"),
+    ("new <tipo> <nome> [opts]", "Nota nova a partir da pasta de templates"),
     ("open [nota]", "Abre no Obsidian"),
     ("change [título]", "Change record (CHG-...)"),
     ("log <mensagem>", "Entrada no diário de hoje"),
@@ -140,15 +140,15 @@ def cmd_ingest(args):
     category = args[1] if len(args) > 1 else "General"
     if not src.is_file():
         sys.exit(c(RED, f"Erro: arquivo '{src}' não encontrado."))
-    dest_dir = VAULT / "90 - Files" / "Sources" / category
+    dest_dir = vaultcfg.fdir(CFG, "sources") / category
     dest_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest_dir / src.name)
     today = datetime.now().strftime("%Y-%m-%d")
     ingest_org = vaultcfg.default_org(CFG)
-    research_dir = VAULT / "14 - Research" / ingest_org if vaultcfg.org_subfolders(CFG) else VAULT / "14 - Research"
+    research_dir = vaultcfg.fdir(CFG, "research") / ingest_org if vaultcfg.org_subfolders(CFG) else vaultcfg.fdir(CFG, "research")
     research_dir.mkdir(parents=True, exist_ok=True)
     synthesis = research_dir / f"{src.stem} - Sintese e Analise.md"
-    raw_rel = f"90 - Files/Sources/{category}/{src.name}"
+    raw_rel = f"{vaultcfg.fpath(CFG, 'sources')}/{category}/{src.name}"
     if not synthesis.exists():
         synthesis.write_text(f"""---
 type: research
@@ -216,17 +216,17 @@ def cmd_search(args):
 
 
 TYPE_MAP = {
-    "server": ("04 - Servers", "Server.md", True), "srv": ("04 - Servers", "Server.md", True),
-    "service": ("05 - Services", "Service.md", True), "svc": ("05 - Services", "Service.md", True),
-    "application": ("06 - Applications", "Application.md", True), "app": ("06 - Applications", "Application.md", True),
-    "project": ("02 - Projects", "Project.md", True),
-    "repository": ("03 - Repositories", "Repository.md", True), "repo": ("03 - Repositories", "Repository.md", True),
-    "procedure": ("10 - Procedures", "Procedure.md", True), "sop": ("10 - Procedures", "Procedure.md", True),
-    "runbook": ("10 - Procedures", "Procedure.md", True),
-    "decision": ("12 - Decisions", "Decision.md", False), "adr": ("12 - Decisions", "Decision.md", False),
-    "research": ("14 - Research", "Research.md", True),
-    "person": ("15 - People", "Person.md", True),
-    "tool": ("16 - Tools", "Tool.md", True),
+    "server": ("servers", "Server.md", True), "srv": ("servers", "Server.md", True),
+    "service": ("services", "Service.md", True), "svc": ("services", "Service.md", True),
+    "application": ("applications", "Application.md", True), "app": ("applications", "Application.md", True),
+    "project": ("projects", "Project.md", True),
+    "repository": ("repositories", "Repository.md", True), "repo": ("repositories", "Repository.md", True),
+    "procedure": ("procedures", "Procedure.md", True), "sop": ("procedures", "Procedure.md", True),
+    "runbook": ("procedures", "Procedure.md", True),
+    "decision": ("decisions", "Decision.md", False), "adr": ("decisions", "Decision.md", False),
+    "research": ("research", "Research.md", True),
+    "person": ("people", "Person.md", True),
+    "tool": ("tools", "Tool.md", True),
 }
 
 
@@ -244,8 +244,9 @@ def cmd_new(args):
             opts[key] = rest[i + 1]
     if etype not in TYPE_MAP:
         sys.exit(c(RED, f'Erro: tipo "{etype}" desconhecido.') + f"\nUso: {usage}")
-    folder, template, by_org = TYPE_MAP[etype]
-    tpl = VAULT / "99 - Templates" / template
+    role, template, by_org = TYPE_MAP[etype]
+    folder = vaultcfg.fpath(CFG, role)
+    tpl = vaultcfg.fdir(CFG, "templates") / template
     if not tpl.is_file():
         sys.exit(c(RED, f"Erro: template {tpl} não encontrado."))
     orgs = vaultcfg.organizations(CFG) + ["Cross-Organization"]
@@ -476,7 +477,7 @@ def open_in_obsidian(note, launch=True):
 
 
 def cmd_open(args):
-    note = args[0] if args else "00 - Dashboard"
+    note = args[0] if args else vaultcfg.fname(CFG, "dashboard")
     print(c(CYAN, f"Abrindo '{note}' no Obsidian..."))
     open_in_obsidian(note)
 
@@ -566,8 +567,8 @@ def cmd_log(args, quiet=False):
         print(c(GREEN, f"✓ Entrada adicionada em [[{rel(f)}]] às {time_str}."))
 
 
-AUTHORS_SKIP = ("99 - Templates", "90 - Files", "00 - Dashboard", "13 - Journal", "08 - Changes", ".obsidian", ".git",
-                ".vault", ".obsidian-config", ".github", ".claude", ".gemini")
+AUTHORS_SKIP = (*(vaultcfg.fpath(CFG, r) for r in ("templates", "files", "dashboard", "changes")), CFG["journal"]["dir"],
+                ".obsidian", ".git", ".vault", ".obsidian-config", ".github", ".claude", ".gemini")
 
 
 def add_authors(text, names):
@@ -613,7 +614,7 @@ def cmd_people(args):
         sys.exit(c(RED, "Uso: vault people sync [--staged]"))
     pdir = vaultcfg.people_dir(CFG)
     if not pdir:
-        sys.exit(c(RED, 'Defina "layout": {"people_dir": "15 - Team"} em .vault/config.json.'))
+        sys.exit(c(RED, 'Defina "layout": {"people_dir": "<pasta de pessoas>"} em .vault/config.json.'))
     pdir.mkdir(parents=True, exist_ok=True)
     if "--staged" in args:
         return people_stage_authors()
@@ -681,7 +682,7 @@ def cmd_people(args):
     if j.get("per_author") and jdir.is_dir():
         link_notes(sorted(jdir.rglob("*.md")), lambda f: f.relative_to(jdir).parts[0] if len(f.relative_to(jdir).parts) > 1 else "",
                    lambda t, n: re.sub(r"(?m)^(# .*)$", lambda m: f"{m.group(1)}\n\nAutor: [[{n}]]", t, count=1))
-    cdir = VAULT / "08 - Changes"
+    cdir = vaultcfg.fdir(CFG, "changes")
     if cdir.is_dir():
         def change_author(f):
             m = re.search(r"(?m)^author:\s*(\S+)", f.read_text(encoding="utf-8").split("---", 2)[1] if f.read_text(encoding="utf-8").startswith("---") else "")

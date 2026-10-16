@@ -527,7 +527,7 @@ def check_duplicate_names(vault_dir):
                 seen.setdefault(name, []).append((d / name).relative_to(root).as_posix())
     errors = []
     for name, paths in sorted(seen.items()):
-        roots = {p.split("/", 2)[1] if p.startswith(tuple(m + "/" for m in SHARED_MOUNTS)) else "" for p in paths}
+        roots = {next((m for m in SHARED_MOUNTS if p.startswith(m + "/")), "") for p in paths}
         if len(paths) > 1 and len(roots) > 1:
             errors.append(f"nome ambíguo entre vaults '{name}': " + ", ".join(paths) + ". Renomeie (ex.: 'Nome (Org)') para o link não cair na nota errada")
     return errors

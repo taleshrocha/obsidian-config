@@ -703,13 +703,13 @@ class TestStopHookTeamVault(Base):
 
 class TestFolderLayout(Base):
     def root_vault(self):
-        """Layout recomendado: conteúdo pessoal em Pessoal/ e vault de time ao lado, na raiz."""
-        cfg = {"folders": {"preset": "pt-BR", "root": "Pessoal"}, "shared_mounts": [{"path": "Time", "organization": "Time"}]}
+        """Layout recomendado: 00 - Pessoal/ e vault de time numerado ao lado, na raiz."""
+        cfg = {"folders": {"preset": "pt-BR", "root": "00 - Pessoal"}, "shared_mounts": [{"path": "01 - Time", "organization": "Time"}]}
         v = self.tmp / "work"
-        names = [f"Pessoal/{vaultcfg.FOLDER_PRESETS['pt-BR'][r]}" for r in vaultcfg.FOLDER_ORDER]
+        names = [f"00 - Pessoal/{vaultcfg.FOLDER_PRESETS['pt-BR'][r]}" for r in vaultcfg.FOLDER_ORDER]
         v = self.make_vault(name="work", expected_dirs=names, **cfg)
         (v / ".vault" / "config.json").write_text(json.dumps({"vault_name": "work", "generate_agent_files": False, **cfg}), encoding="utf-8")
-        m = self.make_vault(name="work/Time", shared_repo=True, folders={"preset": "pt-BR", "meetings": "13 - Diario"},
+        m = self.make_vault(name="work/01 - Time", shared_repo=True, folders={"preset": "pt-BR", "meetings": "13 - Diario"},
                             journal={"dir": "13 - Diario", "per_author": True, "type": "journal"})
         (m / "13 - Reunioes").rename(m / "13 - Diario")
         return v, m
@@ -717,19 +717,19 @@ class TestFolderLayout(Base):
     def test_root_layout_validates_and_writes_under_root(self):
         v, m = self.root_vault()
         cfg = vaultcfg.load(v)
-        self.assertEqual(cfg["expected_dirs"][8], "Pessoal/08 - Mudancas")
-        self.assertEqual(cfg["journal"]["dir"], "Pessoal/13 - Reunioes")
-        self.assertEqual(cfg["policy_note"], "Pessoal/07 - Infraestrutura/AI/Shared Agent Policy.md")
-        write(v / "Pessoal" / "04 - Servidores" / "app-01.md", "---\ntype: server\nenvironment: production\n---\n")
+        self.assertEqual(cfg["expected_dirs"][8], "00 - Pessoal/08 - Mudancas")
+        self.assertEqual(cfg["journal"]["dir"], "00 - Pessoal/13 - Reunioes")
+        self.assertEqual(cfg["policy_note"], "00 - Pessoal/07 - Infraestrutura/AI/Shared Agent Policy.md")
+        write(v / "00 - Pessoal" / "04 - Servidores" / "app-01.md", "---\ntype: server\nenvironment: production\n---\n")
         write(m / "04 - Servidores" / "srv-time.md", "---\ntype: server\nenvironment: production\n---\n")
         r = self.run_tool("vault-validate", v, vault=v)
         self.assertEqual(r.returncode, 0, r.stdout)
-        write(v / "Pessoal" / "04 - Servidores" / "sem-env.md", "---\ntype: server\n---\n")
+        write(v / "00 - Pessoal" / "04 - Servidores" / "sem-env.md", "---\ntype: server\n---\n")
         r = self.run_tool("vault-validate", v, vault=v)
         self.assertIn("sem-env.md: Server missing 'environment'", r.stdout)
-        (v / "Pessoal" / "04 - Servidores" / "sem-env.md").unlink()
+        (v / "00 - Pessoal" / "04 - Servidores" / "sem-env.md").unlink()
         self.assertEqual(self.run_tool("vault", "log", "entrada", vault=v).returncode, 0)
-        self.assertTrue(list((v / "Pessoal" / "13 - Reunioes").glob("*.md")))
+        self.assertTrue(list((v / "00 - Pessoal" / "13 - Reunioes").glob("*.md")))
         self.assertFalse((v / "13 - Reunioes").exists())
 
     @unittest.skipUnless(shutil.which("node"), "node ausente")
@@ -743,19 +743,28 @@ class TestFolderLayout(Base):
             r = subprocess.run(["node", str(REPO / "mcp-server" / "index.js")], input="\n".join(map(json.dumps, msgs)) + "\n",
                                env=env, capture_output=True, text=True, encoding="utf-8", timeout=30)
             self.assertIn("CHG-", r.stdout)
-        self.assertTrue(list((v / "Pessoal" / "08 - Mudancas").rglob("CHG-*.md")))
+        self.assertTrue(list((v / "00 - Pessoal" / "08 - Mudancas").rglob("CHG-*.md")))
         self.assertTrue(list((m / "08 - Mudancas").rglob("CHG-*.md")))
         self.assertFalse((v / "08 - Mudancas").exists())
+
+    def test_same_name_inside_one_root_mount_is_not_ambiguous(self):
+        v, m = self.root_vault()
+        write(m / "04 - Servidores" / "Igual.md", "---\ntype: server\nenvironment: production\n---\n")
+        write(m / "10 - Procedimentos" / "Igual.md", "---\ntype: procedure\n---\n")
+        r = self.run_tool("vault-validate", v, vault=v)
+        self.assertNotIn("nome ambíguo", r.stdout)
+        write(v / "00 - Pessoal" / "10 - Procedimentos" / "Igual.md", "---\ntype: procedure\n---\n")
+        self.assertIn("nome ambíguo", self.run_tool("vault-validate", v, vault=v).stdout)
 
     def test_rendered_policy_and_obsidian_config_follow_root(self):
         v, _ = self.root_vault()
         cfg = vaultcfg.load(v)
-        text = vaultcfg.render_folders(cfg, "ver `08 - Changes/` e `99 - Modelos/` e Pessoal/16 - Ferramentas")
-        self.assertEqual(text, "ver `Pessoal/08 - Mudancas/` e `Pessoal/99 - Modelos/` e Pessoal/16 - Ferramentas")
+        text = vaultcfg.render_folders(cfg, "ver `08 - Changes/` e `99 - Modelos/` e 00 - Pessoal/16 - Ferramentas")
+        self.assertEqual(text, "ver `00 - Pessoal/08 - Mudancas/` e `00 - Pessoal/99 - Modelos/` e 00 - Pessoal/16 - Ferramentas")
         r = self.run_tool("sync-agents", "--quiet", vault=v)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         policy = (self.home / ".config" / "obsidian-config" / "agents" / "policy.md").read_text(encoding="utf-8")
-        self.assertIn("Pessoal/08 - Mudancas", policy)
+        self.assertIn("00 - Pessoal/08 - Mudancas", policy)
         self.assertIn("agents/policy.md", (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8"))
 
     def test_en_preset_keeps_old_names(self):

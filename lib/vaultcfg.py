@@ -27,7 +27,7 @@ USER_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) /
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Nome de cada pasta por papel (changes, servers, templates...). Presets em lib/folders.json,
-# lido também pelo MCP. O vault escolhe com "folders": {"preset": "pt-BR", "root": "Pessoal", <papel>: <nome>}.
+# lido também pelo MCP. O vault escolhe com "folders": {"preset": "pt-BR", "root": "00 - Pessoal", <papel>: <nome>}.
 FOLDERS = json.loads((Path(__file__).resolve().parent / "folders.json").read_text(encoding="utf-8"))
 FOLDER_ORDER = FOLDERS["order"]
 FOLDER_PRESETS = FOLDERS["presets"]
@@ -38,11 +38,12 @@ DEFAULTS = {
     "expected_dirs": [FOLDER_PRESETS["pt-BR"][r] for r in FOLDER_ORDER],
     "allowed_root_entries": [".git", ".gitignore", ".gitattributes", ".obsidian", ".vault", ".obsidian-config", ".mirrors", ".trash"],
     # Nomes das pastas: preset ("pt-BR", padrão, ou "en" para os nomes antigos em inglês), overrides por papel e root (subpasta onde fica o
-    # conteúdo, ex.: "Pessoal" quando os vaults de time ficam ao lado dele na raiz). expected_dirs,
+    # conteúdo, ex.: "00 - Pessoal" quando os vaults de time ficam ao lado dele na raiz). expected_dirs,
     # policy_note, agent_rules_note e journal.dir derivam daqui quando o config não os define.
     "folders": {"preset": "pt-BR", "root": ""},
     # Vaults de time montados como subpasta (repo git próprio), cada um no .gitignore do vault.
-    # Layout recomendado: "Time A" na raiz, ao lado de folders.root (ex.: "Pessoal").
+    # Layout recomendado: "01 - Time A", "02 - Time B" na raiz, depois de folders.root ("00 - Pessoal").
+    # Nome e ordem dos mounts são escolha de cada pessoa; as ferramentas só leem o path daqui.
     "shared_mounts": [],
     "projects_dir": "~/Projects",
     "policy_note": "07 - Infraestrutura/AI/Shared Agent Policy.md",
@@ -178,7 +179,7 @@ def fname(cfg, role):
 
 
 def fpath(cfg, role):
-    """Caminho da pasta de um papel relativo ao vault (ex.: 'Pessoal/08 - Mudancas')."""
+    """Caminho da pasta de um papel relativo ao vault (ex.: '00 - Pessoal/08 - Mudancas')."""
     return (cfg["content_root"] + "/" if cfg.get("content_root") else "") + cfg["folder_names"][role]
 
 

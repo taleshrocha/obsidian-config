@@ -73,7 +73,7 @@ Padrão em pt-BR (preset `pt-BR`). O preset `en` mantém os nomes antigos em ing
 | `90 - Arquivos` | `files` | Anexos e fontes brutas imutáveis (`90 - Arquivos/Fontes`) |
 | `99 - Modelos` | `templates` | Templates usados por `vault new` e pelo Templater |
 
-`folders` no config troca o preset, renomeia papéis isolados e define `root`, a subpasta onde fica o conteúdo. Com `root: "Pessoal"`, `08 - Mudancas` vira `Pessoal/08 - Mudancas`, e os vaults de time ficam ao lado de `Pessoal/` na raiz. `expected_dirs`, `policy_note`, `agent_rules_note` e `journal.dir` derivam do mapa quando o config não os define. Toda nota tem frontmatter com `type`. Servidores exigem `environment`. Changes exigem `id`, `date`, `status` e `server`, `service` ou `project`.
+`folders` no config troca o preset, renomeia papéis isolados e define `root`, a subpasta onde fica o conteúdo. Com `root: "00 - Pessoal"`, `08 - Mudancas` vira `00 - Pessoal/08 - Mudancas`, e os vaults de time ficam ao lado de `00 - Pessoal/` na raiz, com os números seguintes. `expected_dirs`, `policy_note`, `agent_rules_note` e `journal.dir` derivam do mapa quando o config não os define. Toda nota tem frontmatter com `type`. Servidores exigem `environment`. Changes exigem `id`, `date`, `status` e `server`, `service` ou `project`.
 
 ## `.vault/config.json`
 
@@ -114,14 +114,14 @@ Quem também tem vault pessoal usa este layout, aberto como um vault só no Obsi
 ```
 Work/                    repositório git do vault pessoal; é a pasta aberta no Obsidian
 ├── .obsidian/           config do Obsidian (vale para os três)
-├── .vault/config.json   config pessoal: folders.root = "Pessoal", shared_mounts = ["Time A", "Time B"]
+├── .vault/config.json   config pessoal: folders.root = "00 - Pessoal", shared_mounts = ["01 - Time A", "02 - Time B"]
 ├── .obsidian-config/    clone deste repositório (ignorado pelo git)
-├── Pessoal/             conteúdo pessoal, com as pastas numeradas
-├── Time A/              vault do time A: repositório git próprio, no .gitignore do pessoal
-└── Time B/              vault do time B: idem
+├── 00 - Pessoal/        conteúdo pessoal, com as pastas numeradas
+├── 01 - Time A/         vault do time A: repositório git próprio, no .gitignore do pessoal
+└── 02 - Time B/         vault do time B: idem
 ```
 
-Cada vault de time é declarado em `shared_mounts` e listado no `.gitignore` do pessoal. Com isso:
+O número e o nome de cada vault de time são escolha de quem monta: dois devs podem ter o mesmo time em `01 - Time A/` e em `03 - Time A/`. Nenhuma ferramenta assume o caminho; tudo vem de `shared_mounts`. Cada vault de time é declarado ali e listado no `.gitignore` do pessoal. Com isso:
 
 - `vault-validate` do vault pessoal valida o mount com a config do próprio mount.
 - `sync-agents` registra um MCP para cada vault (`mcp_name` de cada um).

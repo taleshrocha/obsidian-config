@@ -130,6 +130,7 @@ Toda alteração feita no atendimento, no vault ou em repositório de projeto, �
 ## 12. Acesso Git a hosts privados
 
 - Para hosts listados em `git_https_auth` (`.vault/config.json`), use HTTPS com header dinâmico (`git -c http.extraheader=...`). O token não tem caminho fixo: as ferramentas (`vault`, MCP, hooks) o resolvem na ordem variável de ambiente (`token_env`), arquivo (`token_file`) e cofre de credenciais do git (Git Credential Manager, Keychain, libsecret). Sem token, rode `vault auth set <host>`, que guarda no cofre do sistema sem expor o valor ao agente. `vault auth status` mostra o que está disponível. Nunca grave token em `.git/config`, nota, commit ou log, e nunca assuma o caminho `~/.config/...` de outra máquina.
+- Falha de autenticação em GitLab ou GitHub: o agente roda `vault auth setup --check`, reporta e recomenda a skill `vault-setup` ou `vault auth setup` (terminal do operador). Nada de caçar token no disco, supor caminho ou tentar SSH.
 - Restrições de host (ex.: SSH proibido) ficam nas regras locais.
 
 ## 13. Redação técnica direta (unslop)

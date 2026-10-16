@@ -351,9 +351,19 @@ def cmd_auth_setup(args):
         else:
             print(c(RED, f"  ✗ {host}: sem token"))
         missing += 1
+    print(c(BOLD, "\n3. GitHub CLI"))
+    if shutil.which("gh"):
+        gh = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True)
+        if gh.returncode == 0:
+            print(c(GREEN, "  ✓ gh autenticado"))
+        else:
+            print(c(RED, "  ✗ gh sem login. Rode num terminal: gh auth login"))
+            missing += 1
+    else:
+        print(c(YELLOW, "  - gh não instalado (necessário só se usar GitHub: https://cli.github.com)"))
     if missing:
         print(c(BOLD, "\nPróximo passo (rode você mesmo num terminal, o agente não deve ver o token):"))
-        print("  vault auth setup")
+        print("  vault auth setup   (GitLab/cofre)   e   gh auth login   (GitHub)")
         return 1
     print(c(GREEN, "\nCredenciais prontas."))
     return 0

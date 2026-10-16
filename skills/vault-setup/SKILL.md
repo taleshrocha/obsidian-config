@@ -1,7 +1,7 @@
 ---
 name: vault-setup
 type: skill
-description: Configura e confere o ambiente de um dev no obsidian-config: credenciais Git (token no cofre do sistema), credential helper, vault e MCP. Use quando o usuário pedir "configure minhas credenciais", "setup do vault", ou quando um git pull/push do vault falhar por autenticação.
+description: Configura e confere o ambiente de um dev no obsidian-config: credenciais Git (token no cofre do sistema), credential helper, vault e MCP. Use quando o usuário pedir "configure minhas credenciais", "setup do vault", ou SEMPRE que git, gh ou API do GitLab/GitHub falhar por autenticação (401, 403, Authentication failed, token não encontrado).
 ---
 
 # Setup do ambiente obsidian-config
@@ -21,7 +21,7 @@ Objetivo: deixar as credenciais Git do vault funcionando em qualquer máquina (L
    ```
    vault auth setup --check
    ```
-   Mostra se há credential helper e, por host de `git_https_auth`, de onde vem o token (ou que falta).
+   Mostra se há credential helper, se o `gh` está logado e, por host de `git_https_auth`, de onde vem o token (ou que falta).
 2. Tudo `✓`: pare. Confirme com um `git ls-remote` ou `git pull --rebase` no vault de time e informe o resultado.
 3. Faltou helper ou token: o setup pede digitação oculta, então o operador roda ele mesmo num terminal real (no Claude Code, prefixe com `!`):
    ```

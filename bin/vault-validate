@@ -349,6 +349,67 @@ def check_agent_sync(vault_dir):
         return ["Agent instruction files desynchronized with Shared Agent Policy.md:"] + [f"    {l}" for l in lines] + ["    👉 Fix by running: vault sync-agents"]
     return []
 
+ORG_FOLDERS = ["02 - Projects", "03 - Repositories", "04 - Servers", "05 - Services", "06 - Applications",
+               "10 - Procedures", "14 - Research", "16 - Tools"]
+
+
+def _note_date(path, props):
+    m = re.search(r"(\d{4})-(\d{2})-\d{2}", path.name)
+    if m:
+        return m.group(1), m.group(2)
+    m = re.match(r"(\d{4})-(\d{2})-\d{2}", (props or {}).get("date", ""))
+    return (m.group(1), m.group(2)) if m else None
+
+
+def check_layout(vault_dir):
+    """Organização das pastas: sem pasta de organização desnecessária, AAAA/MM nas pastas de data,
+    uma nota de pessoa por autor. Só vale onde o vault declara (vault de time ou `layout`)."""
+    errors = []
+    root = Path(vault_dir)
+    layout = CFG.get("layout", {})
+    strict_orgs = layout.get("org_subfolders") is False or (layout.get("org_subfolders") is None and CFG.get("shared_repo"))
+    if strict_orgs and not vaultcfg.org_subfolders(CFG):
+        orgs = {o.lower() for o in vaultcfg.real_orgs(CFG)}
+        for folder in ORG_FOLDERS:
+            base = root / folder
+            if base.is_dir():
+                for sub in sorted(p for p in base.iterdir() if p.is_dir() and p.name.lower() in orgs):
+                    errors.append(f"{folder}/{sub.name}: pasta de organização desnecessária (vault de uma só organização). Mova as notas para {folder}/")
+    journal = CFG.get("journal", {})
+    for folder in layout.get("date_folders", []):
+        base = root / folder
+        if not base.is_dir():
+            continue
+        for f in sorted(base.rglob("*.md")):
+            rel_parts = f.relative_to(base).parts
+            if f.name.lower() in ("readme.md", "index.md"):
+                continue
+            props, _ = parse_frontmatter(str(f))
+            d = _note_date(f, props)
+            if not d:
+                continue
+            skip = 1 if (folder == journal.get("dir") and journal.get("per_author")) else 0
+            expected = (d[0], d[1])
+            actual = tuple(rel_parts[skip:skip + 2])
+            if len(rel_parts) != skip + 3 or actual != expected:
+                errors.append(f"{f.relative_to(root).as_posix()}: deve ficar em {folder}/" + ("<autor>/" if skip else "") + f"{d[0]}/{d[1]}/")
+    pdir = vaultcfg.people_dir(CFG)
+    if pdir:
+        authors = set()
+        if journal.get("per_author"):
+            jd = root / journal.get("dir", "")
+            if jd.is_dir():
+                authors |= {p.name for p in jd.iterdir() if p.is_dir()}
+        for f in (root / "08 - Changes").rglob("*.md") if (root / "08 - Changes").is_dir() else []:
+            props, _ = parse_frontmatter(str(f))
+            if props and props.get("author"):
+                authors.add(props["author"])
+        for slug in sorted(authors):
+            if not vaultcfg.find_person(CFG, slug):
+                errors.append(f"autor '{slug}' sem nota de pessoa em {layout['people_dir']}/. Rode: vault people sync")
+    return errors
+
+
 def main():
     vault_dir = sys.argv[1] if len(sys.argv) > 1 else _resolve_vault_dir()
     configure(vault_dir)
@@ -432,6 +493,16 @@ def main():
     else:
         print("✗ Shared vault mounts")
         for e in mount_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    # 6c. Layout (pastas de organização, AAAA/MM, notas de pessoa)
+    layout_errs = check_layout(vault_dir)
+    if not layout_errs:
+        print("✓ Layout")
+    else:
+        print("✗ Layout")
+        for e in layout_errs:
             print(f"  - {e}")
         all_passed = False
 

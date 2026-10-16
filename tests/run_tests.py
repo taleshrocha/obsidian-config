@@ -170,6 +170,22 @@ class TestMcp(Base):
         self.assertIn("dev-teste-001", out[1]["result"]["content"][0]["text"])
         self.assertTrue(list((v / "13 - Journal" / "dev-teste").glob("*.md")))
 
+    def test_team_layout_year_month_and_person(self):
+        v = self.make_vault(change_id_author=True, mcp_name="team-vault", organizations=["Org A"],
+                            journal={"dir": "13 - Journal", "per_author": True, "type": "journal"},
+                            layout={"date_folders": ["08 - Changes", "13 - Journal"], "people_dir": "15 - People"})
+        self.call(v, {"name": "create_change_record", "arguments": {"title": "T", "server": "", "service": "",
+                                                                      "project": "P", "description": "d"}},
+                  {"name": "append_daily_log", "arguments": {"content": "x"}})
+        change = next((v / "08 - Changes").rglob("CHG-*.md"))
+        self.assertRegex(change.relative_to(v / "08 - Changes").as_posix(), r"^\d{4}/\d{2}/CHG-")
+        journal = next((v / "13 - Journal" / "dev-teste").rglob("*.md"))
+        self.assertRegex(journal.relative_to(v / "13 - Journal" / "dev-teste").as_posix(), r"^\d{4}/\d{2}/\d{4}-\d{2}-\d{2}\.md$")
+        person = (v / "15 - People" / "Dev Teste.md").read_text(encoding="utf-8")
+        self.assertIn("author: dev-teste", person)
+        self.assertIn("[[Dev Teste]]", change.read_text(encoding="utf-8"))
+        self.assertIn("[[Dev Teste]]", journal.read_text(encoding="utf-8"))
+
     def test_shared_repo_pulls_before_tool(self):
         git = lambda *a, cwd: subprocess.run(["git", *a], cwd=cwd, env=self.env, check=True, capture_output=True)
         origin = self.tmp / "origin.git"
@@ -330,6 +346,64 @@ class TestInstallAndGate(Base):
         r = subprocess.run([sys.executable, "-X", "utf8", str(REPO / "tools" / "privacy_gate.py")], env=self.env,
                            capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stdout)
+
+
+class LayoutTests(Base):
+    LAYOUT = {"date_folders": ["08 - Changes", "13 - Journal"], "people_dir": "15 - Team", "org_subfolders": False}
+
+    def team_vault(self, **extra):
+        v = self.make_vault(organizations=["Org A"], change_id_author=True,
+                            journal={"dir": "13 - Journal", "per_author": True, "type": "journal"},
+                            layout=dict(self.LAYOUT), expected_dirs=[d for d in DIRS if d not in ("13 - Meetings", "15 - People")] + ["13 - Journal", "15 - Team"], **extra)
+        shutil.copytree(REPO / "templates", v / "99 - Templates", dirs_exist_ok=True)
+        return v
+
+    def test_single_org_has_no_org_folder_and_multi_org_has(self):
+        v = self.team_vault()
+        self.run_tool("vault", "new", "repo", "api", vault=v)
+        self.assertTrue((v / "03 - Repositories" / "api.md").is_file())
+        self.assertFalse((v / "03 - Repositories" / "Org A").exists())
+        v2 = self.make_vault(name="pessoal", organizations=["Org A", "Org B"])
+        shutil.copytree(REPO / "templates", v2 / "99 - Templates", dirs_exist_ok=True)
+        self.run_tool("vault", "new", "repo", "api", "--org", "Org B", vault=v2)
+        self.assertTrue((v2 / "03 - Repositories" / "Org B" / "api.md").is_file())
+
+    def test_cli_change_log_use_year_month_and_link_person(self):
+        v = self.team_vault()
+        self.run_tool("vault", "log", "feito", vault=v)
+        self.run_tool("vault", "change", "Titulo", vault=v, input_text="\n\n\n\n\n\n")
+        self.assertTrue(list((v / "13 - Journal" / "dev-teste").glob("*/*/*.md")))
+        change = next((v / "08 - Changes").glob("*/*/CHG-*.md"))
+        self.assertIn("[[Dev Teste]]", change.read_text(encoding="utf-8"))
+        self.assertTrue((v / "15 - Team" / "Dev Teste.md").is_file())
+        r = self.run_tool("vault-validate", v, vault=v)
+        self.assertIn("✓ Layout", r.stdout)
+
+    def test_validator_flags_layout_problems(self):
+        v = self.team_vault()
+        write(v / "03 - Repositories" / "Org A" / "api.md", "---\ntype: repository\nname: api\norganization: Org A\n---\n# api\n")
+        write(v / "13 - Journal" / "fulano" / "2020-01-15.md", "---\ntype: journal\ntitle: d\ndate: 2020-01-15\nauthor: fulano\nstatus: completed\n---\n# d\n")
+        r = self.run_tool("vault-validate", v, vault=v)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("pasta de organização desnecessária", r.stdout)
+        self.assertIn("deve ficar em 13 - Journal/<autor>/2020/01/", r.stdout)
+        self.assertIn("sem nota de pessoa", r.stdout)
+
+    def test_people_sync_is_idempotent_and_honors_alias(self):
+        v = self.team_vault()
+        cfg = json.loads((v / ".vault" / "config.json").read_text())
+        cfg["layout"]["people_aliases"] = {"fulano": "Fulano de Tal"}
+        (v / ".vault" / "config.json").write_text(json.dumps(cfg))
+        write(v / "15 - Team" / "Fulano de Tal.md", "---\ntype: person\nname: Fulano de Tal\nauthor: fulano\n---\n# Fulano\n")
+        write(v / "15 - Team" / "Equipe.md", "---\ntype: team\n---\n# Equipe\n\n## Beltrana\n\n- **Papel:** QA.\n")
+        write(v / "13 - Journal" / "fulano" / "2020" / "01" / "2020-01-15.md", "---\ntype: journal\ntitle: d\ndate: 2020-01-15\nauthor: fulano\nstatus: completed\n---\n# d\n")
+        self.run_tool("vault", "people", "sync", vault=v)
+        self.run_tool("vault", "people", "sync", vault=v)
+        self.assertTrue((v / "15 - Team" / "Beltrana.md").is_file())
+        self.assertFalse((v / "15 - Team" / "fulano.md").exists())
+        self.assertFalse((v / "15 - Team" / "Membros.md").exists())
+        self.assertIn("[[Beltrana]]: QA", (v / "15 - Team" / "Equipe.md").read_text(encoding="utf-8"))
+        self.assertIn("[[Fulano de Tal]]", (v / "13 - Journal" / "fulano" / "2020" / "01" / "2020-01-15.md").read_text(encoding="utf-8"))
 
 
 class TeamVaultAndAuthTests(Base):

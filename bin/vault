@@ -50,6 +50,7 @@ COMMANDS = [
     ("canvas", "Regenera os canvases de topologia"),
     ("sync-agents", "Instruções, skills e MCP dos agentes"),
     ("sync", "Valida, comita e envia o vault"),
+    ("people sync", "Uma nota de pessoa por membro do time (layout.people_dir)"),
     ("backup [--list|--force|--restore f]", "Snapshot das configs de ~/.claude, ~/.gemini, ~/.agent(s), ~/.codex"),
     ("auth <setup|status|set>", "Credenciais Git: setup guiado, token no cofre do sistema, sem arquivo fixo"),
     ("help", "Esta ajuda"),
@@ -143,7 +144,8 @@ def cmd_ingest(args):
     dest_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest_dir / src.name)
     today = datetime.now().strftime("%Y-%m-%d")
-    research_dir = VAULT / "14 - Research" / "Cross-Organization"
+    ingest_org = vaultcfg.default_org(CFG)
+    research_dir = VAULT / "14 - Research" / ingest_org if vaultcfg.org_subfolders(CFG) else VAULT / "14 - Research"
     research_dir.mkdir(parents=True, exist_ok=True)
     synthesis = research_dir / f"{src.stem} - Sintese e Analise.md"
     raw_rel = f"90 - Files/Sources/{category}/{src.name}"
@@ -154,8 +156,8 @@ name: {src.stem} - Síntese e Análise
 topic: {category}
 source_type: ingest
 raw_source: {raw_rel}
-organization: Cross-Organization
-project: Cross-Organization
+organization: {ingest_org}
+project: {ingest_org}
 date: {today}
 ingested_by: Operator & AI Agent
 status: active
@@ -233,8 +235,7 @@ def cmd_new(args):
     need(args, 2, usage)
     etype, name = args[0].lower(), args[1]
     # Vault com uma única organização (vault de time): ela é o padrão, sem exigir --org.
-    cfg_orgs = vaultcfg.organizations(CFG)
-    opts = {"org": cfg_orgs[0] if len(cfg_orgs) == 1 else "Cross-Organization",
+    opts = {"org": vaultcfg.default_org(CFG),
             "server": "", "project": "", "env": "production", "status": "active"}
     rest = args[2:]
     for i in range(0, len(rest) - 1, 2):
@@ -249,10 +250,15 @@ def cmd_new(args):
         sys.exit(c(RED, f"Erro: template {tpl} não encontrado."))
     orgs = vaultcfg.organizations(CFG) + ["Cross-Organization"]
     org = next((o for o in orgs if o.lower() == opts["org"].lower()), opts["org"])
-    dest_dir = VAULT / folder / org if by_org and orgs != ["Cross-Organization"] else VAULT / folder
+    today = datetime.now().strftime("%Y-%m-%d")
+    if etype == "person" and vaultcfg.people_dir(CFG):
+        folder, by_org = CFG["layout"]["people_dir"], False
+    use_org_dir = by_org and vaultcfg.org_subfolders(CFG) and orgs != ["Cross-Organization"]
+    dest_dir = VAULT / folder / org if use_org_dir else VAULT / folder
+    if vaultcfg.date_sub(CFG, folder, today):
+        dest_dir = dest_dir / vaultcfg.date_sub(CFG, folder, today)
     dest_dir.mkdir(parents=True, exist_ok=True)
     clean = re.sub(r'[/\\?%*:|"<>]', "-", name).strip()
-    today = datetime.now().strftime("%Y-%m-%d")
     if etype in ("decision", "adr"):
         prefix = f"ADR-{today}-" + (f"{vaultcfg.author(CFG)}-" if CFG.get("change_id_author") else "")
         existing = [int(m.group(1)) for f in dest_dir.iterdir() if (m := re.match(re.escape(prefix) + r"(\d{3})", f.name))]
@@ -483,6 +489,8 @@ def write_change(title, server, service, project, risk, desc, agent="Operator CL
     path = year_dir / f"{cid} - {clean}.md"
     link = lambda v: f"[[{v}]]" if v else "-"  # noqa: E731
     author_line = f"author: {vaultcfg.author(CFG)}\n" if CFG.get("change_id_author") else ""
+    who_link = vaultcfg.author_link(CFG)
+    who_line = f"- **Autor:** {who_link}\n" if who_link else ""
     path.write_text(f"""---
 type: change
 id: {cid}
@@ -502,7 +510,7 @@ environment: local
 
 - **ID:** `{cid}`
 - **Data:** `{today}`
-- **Projeto:** {link(project)}
+{who_line}- **Projeto:** {link(project)}
 - **Servidor:** {link(server)}
 - **Serviço:** {link(service)}
 - **Risco:** `{risk}`
@@ -548,11 +556,99 @@ def cmd_log(args, quiet=False):
         who = vaultcfg.author(CFG) if CFG["journal"].get("per_author") else ""
         title = f"Diário {who} {date_str}".replace("  ", " ") if who else f"Daily Log {date_str}"
         author_line = f"author: {who}\n" if who else ""
-        f.write_text(f"---\ntype: {jtype}\ntitle: {title}\ndate: {date_str}\n{author_line}status: completed\n---\n\n# {title}\n", encoding="utf-8")
+        who_link = vaultcfg.author_link(CFG) if who else ""
+        link_line = f"\nAutor: {who_link}\n" if who_link else ""
+        f.write_text(f"---\ntype: {jtype}\ntitle: {title}\ndate: {date_str}\n{author_line}status: completed\n---\n\n# {title}\n{link_line}", encoding="utf-8")
     with f.open("a", encoding="utf-8") as fh:
         fh.write(f"\n### [{time_str}] Atividade Operacional\n\n{' '.join(args)}\n")
     if not quiet:
         print(c(GREEN, f"✓ Entrada adicionada em [[{rel(f)}]] às {time_str}."))
+
+
+def cmd_people(args):
+    """vault people sync: uma nota de pessoa por membro (autores dos diários e seções das notas de time)."""
+    if (args[:1] or ["sync"])[0] != "sync":
+        sys.exit(c(RED, "Uso: vault people sync"))
+    pdir = vaultcfg.people_dir(CFG)
+    if not pdir:
+        sys.exit(c(RED, 'Defina "layout": {"people_dir": "15 - Team"} em .vault/config.json.'))
+    pdir.mkdir(parents=True, exist_ok=True)
+    created = []
+    # 1. Autores: pastas do diário por autor e o autor atual.
+    j = CFG["journal"]
+    slugs = {vaultcfg.author(CFG)}
+    jdir = VAULT / j["dir"]
+    if j.get("per_author") and jdir.is_dir():
+        slugs |= {d.name for d in jdir.iterdir() if d.is_dir()}
+    git_names = {}
+    for n in git("log", "--format=%an").stdout.splitlines():
+        git_names.setdefault(vaultcfg.slugify(n), n)
+    for slug in sorted(slugs):
+        if vaultcfg.find_person(CFG, slug):
+            continue
+        name = re.sub(r'[/\\?%*:|"<>]', "-", git_names.get(slug, slug)).strip()
+        note = pdir / f"{name}.md"
+        if note.exists():
+            continue
+        note.write_text(vaultcfg.person_note_text(CFG, name, slug), encoding="utf-8")
+        created.append(rel(note))
+    # 2. Notas de time com uma seção "## Nome" por membro viram uma nota por pessoa.
+    for team in sorted(pdir.glob("*.md")):
+        text = team.read_text(encoding="utf-8")
+        if vaultcfg._frontmatter_field(text, "type") != "team":
+            continue
+        parts = re.split(r"(?m)^## ", text)
+        if len(parts) < 2:
+            continue
+        bullets = []
+        if all(sec.partition("\n")[0].strip() == "Membros" for sec in parts[1:]):
+            continue  # já convertida: só a lista de membros
+        for sec in parts[1:]:
+            name, _, body = sec.partition("\n")
+            name = name.strip()
+            if name == "Membros":
+                bullets += [l for l in body.splitlines() if l.strip().startswith("- [[")]
+                continue
+            m = re.search(r"\*\*Papel:\*\*\s*(.+)", body)
+            role = m.group(1).strip().rstrip(".") if m else ""
+            note = pdir / f"{name}.md"
+            if not note.exists():
+                slug = next((sl for sl, gn in git_names.items() if sl == vaultcfg.slugify(name)), "")
+                note.write_text(vaultcfg.person_note_text(CFG, name, slug or vaultcfg.slugify(name), body, role), encoding="utf-8")
+                created.append(rel(note))
+            bullets.append(f"- [[{name}]]" + (f": {role}" if role else ""))
+        team.write_text(parts[0].rstrip() + "\n\n## Membros\n\n" + "\n".join(bullets) + "\n", encoding="utf-8")
+    # 3. Liga diários e changes existentes à pessoa autora (idempotente).
+    linked = 0
+    def link_notes(files, slug_of, patch):
+        nonlocal linked
+        for f in files:
+            slug = slug_of(f)
+            person = vaultcfg.find_person(CFG, slug) if slug else None
+            if not person:
+                continue
+            text = f.read_text(encoding="utf-8")
+            if f"[[{person.stem}]]" in text:
+                continue
+            new = patch(text, person.stem)
+            if new != text:
+                f.write_text(new, encoding="utf-8")
+                linked += 1
+    if j.get("per_author") and jdir.is_dir():
+        link_notes(sorted(jdir.rglob("*.md")), lambda f: f.relative_to(jdir).parts[0] if len(f.relative_to(jdir).parts) > 1 else "",
+                   lambda t, n: re.sub(r"(?m)^(# .*)$", lambda m: f"{m.group(1)}\n\nAutor: [[{n}]]", t, count=1))
+    cdir = VAULT / "08 - Changes"
+    if cdir.is_dir():
+        def change_author(f):
+            m = re.search(r"(?m)^author:\s*(\S+)", f.read_text(encoding="utf-8").split("---", 2)[1] if f.read_text(encoding="utf-8").startswith("---") else "")
+            return m.group(1) if m else ""
+        link_notes(sorted(cdir.rglob("*.md")), change_author,
+                   lambda t, n: re.sub(r"(?m)^(- \*\*Data:\*\*.*)$", lambda m: f"{m.group(1)}\n- **Autor:** [[{n}]]", t, count=1))
+    if linked:
+        print(c(GREEN, f"✓ {linked} nota(s) ligada(s) à pessoa autora."))
+    for r in created:
+        print(c(GREEN, "✓ Criada:") + f" [[{r}]]")
+    print(c(GREEN, f"{len(created)} nota(s) de pessoa criada(s).") if created else "Todos os membros já têm nota.")
 
 
 def cmd_sync(_):
@@ -588,7 +684,7 @@ def main():
         "meta": cmd_meta, "frontmatter": cmd_meta, "outline": cmd_outline, "toc": cmd_outline,
         "section": cmd_section, "links": cmd_links, "open": cmd_open, "change": cmd_change, "log": cmd_log,
         "canvas": lambda a: run_tool("generate-canvas", *a), "sync-agents": lambda a: run_tool("sync-agents", *a),
-        "sync": cmd_sync, "auth": cmd_auth,
+        "sync": cmd_sync, "auth": cmd_auth, "people": cmd_people,
         "backup": lambda a: run_tool("agent-backup", *a),
     }
     if cmd not in table:

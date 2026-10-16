@@ -8,6 +8,7 @@
   "policy_topics": [],
   "git": {"remote": "origin", "branch": "main", "auto_push": true},
   "git_https_auth": [],
+  "layout": {"org_subfolders": null, "date_folders": [], "people_dir": "", "people_aliases": {}},
   "default_change_server": "",
   "guard": {"allow": [], "common_org_words": []}
 }

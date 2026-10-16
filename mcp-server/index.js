@@ -57,6 +57,45 @@ function resolveAuthor() {
 }
 const AUTHOR = resolveAuthor();
 
+// Layout do vault (espelha lib/vaultcfg.py): subpastas AAAA/MM e uma nota de pessoa por autor.
+const LAYOUT = { date_folders: [], people_dir: "", people_aliases: {}, ...(VAULT_CFG.layout || {}) };
+
+function dateSub(folder, dateStr) {
+    return LAYOUT.date_folders.includes(folder) ? path.join(dateStr.slice(0, 4), dateStr.slice(5, 7)) : "";
+}
+
+function frontmatterField(text, key) {
+    const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    const f = m && m[1].match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"));
+    return f ? f[1].trim().replace(/^['"]|['"]$/g, "") : "";
+}
+
+// Nota de pessoa do autor atual em people_dir (criada se faltar). Devolve o nome da nota, ou "" se desligado.
+function ensurePerson() {
+    if (!LAYOUT.people_dir) return "";
+    const dir = path.join(VAULT_ROOT, LAYOUT.people_dir);
+    fs.mkdirSync(dir, { recursive: true });
+    const alias = LAYOUT.people_aliases[AUTHOR];
+    if (alias && fs.existsSync(path.join(dir, `${alias}.md`))) return alias;
+    for (const f of fs.readdirSync(dir).filter(n => n.endsWith(".md")).sort()) {
+        const text = fs.readFileSync(path.join(dir, f), "utf8");
+        if (frontmatterField(text, "type") !== "person") continue;
+        const a = frontmatterField(text, "author");
+        if (a === AUTHOR || (!a && slugify(f.slice(0, -3)) === AUTHOR)) return f.slice(0, -3);
+    }
+    let display = process.env.VAULT_AUTHOR || "";
+    if (!display) {
+        try { display = execFileSync("git", ["-C", VAULT_ROOT, "config", "user.name"], { encoding: "utf8", timeout: 3000 }).trim(); } catch (_) {}
+    }
+    const name = (display || AUTHOR).replace(/[/\\?%*:|"<>]/g, "-").trim();
+    const note = path.join(dir, `${name}.md`);
+    if (!fs.existsSync(note)) {
+        const org = (VAULT_CFG.organizations || [])[0] || "";
+        fs.writeFileSync(note, `---\ntype: person\nname: ${name}\norganization: ${org}\nauthor: ${AUTHOR}\nrole: \nstatus: active\nlast_verified: ${new Date().toISOString().slice(0, 10)}\n---\n\n# ${name}\n\n## Visão Geral\n\nResumo da atuação e das responsabilidades da pessoa no time.\n\n## Documentos Relacionados\n\nChanges, diários e notas que citam esta pessoa aparecem no painel de backlinks do Obsidian.\n`, "utf8");
+    }
+    return name;
+}
+
 // Vault de time (shared_repo): antes de cada ferramenta, traz o que os colegas publicaram.
 // fetch + merge --ff-only, no máximo a cada `auto_pull_ttl_seconds`. Nunca faz rebase nem
 // mexe em commit local: se houver divergência ou falha de rede, avisa na saída da ferramenta.
@@ -530,8 +569,9 @@ function handleCreateChangeRecord({ title, server, service, project, risk = "low
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const dd = String(now.getDate()).padStart(2, "0");
     const dateStr = `${yyyy}-${mm}-${dd}`;
-    const yearDir = path.join(VAULT_ROOT, "08 - Changes", String(yyyy));
+    const yearDir = path.join(VAULT_ROOT, "08 - Changes", dateSub("08 - Changes", dateStr) || String(yyyy));
     fs.mkdirSync(yearDir, { recursive: true });
+    const whoName = ensurePerson();
 
     const files = fs.readdirSync(yearDir);
     let maxSeq = 0;
@@ -573,7 +613,7 @@ environment: production
 
 - **ID:** \`${changeId}\`
 - **Data:** \`${dateStr}\`
-- **Projeto:** ${prjLink}
+${whoName ? `- **Autor:** [[${whoName}]]\n` : ""}- **Projeto:** ${prjLink}
 - **Servidor:** ${srvLink}
 - **Serviço:** ${svcLink}
 - **Ambiente:** \`production\`
@@ -622,15 +662,17 @@ function handleAppendDailyLog({ content, heading = "Atividade do Agente IA" }) {
     const min = String(now.getMinutes()).padStart(2, "0");
     const timeStr = `${hh}:${min}`;
 
-    const meetingsDir = VAULT_CFG.journal.per_author
+    const journalBase = VAULT_CFG.journal.per_author
         ? path.join(VAULT_ROOT, VAULT_CFG.journal.dir, AUTHOR)
         : path.join(VAULT_ROOT, VAULT_CFG.journal.dir);
+    const meetingsDir = path.join(journalBase, dateSub(VAULT_CFG.journal.dir, dateStr));
     fs.mkdirSync(meetingsDir, { recursive: true });
     const logFile = path.join(meetingsDir, `${dateStr}.md`);
     const relPath = path.relative(VAULT_ROOT, logFile);
 
     let prefix = "";
     if (!fs.existsSync(logFile)) {
+        const whoName = VAULT_CFG.journal.per_author ? ensurePerson() : "";
         prefix = `---
 type: ${VAULT_CFG.journal.type || "meeting"}
 title: Daily Log ${dateStr}
@@ -639,7 +681,7 @@ ${VAULT_CFG.journal.per_author ? `author: ${AUTHOR}\n` : ""}status: completed
 ---
 
 # Daily Log · ${dateStr}
-
+${whoName ? `\nAutor: [[${whoName}]]\n` : ""}
 `;
     }
 

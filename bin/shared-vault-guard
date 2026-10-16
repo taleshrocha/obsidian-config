@@ -64,7 +64,13 @@ def roster_members(mount_dir, roster):
     f = mount_dir / roster
     if not f.is_file():
         return set()
-    return {n.strip() for n in re.findall(r"^## (.+)$", f.read_text(encoding="utf-8"), re.M)}
+    text = f.read_text(encoding="utf-8")
+    names = {n.strip() for n in re.findall(r"^## (.+)$", text, re.M)}
+    names |= {n.strip() for n in re.findall(r"^\s*[-*]\s+\[\[([^\]|#]+)", text, re.M)}
+    # Uma nota de pessoa por membro, na pasta do roster (layout.people_dir).
+    names |= {p.stem for p in f.parent.glob("*.md") if re.search(r"(?m)^type:\s*person\s*$", p.read_text(encoding="utf-8", errors="replace"))}
+    names.discard("Membros")
+    return names
 
 
 def build_denylist(cfg, mount, include_mounts=False):

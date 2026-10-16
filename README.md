@@ -84,6 +84,7 @@ Para desfazer a instalação sem tocar no conteúdo do vault: `python3 uninstall
 | `shared_mounts` | `[]` | Vaults de time montados como subpasta: `{"path", "organization", "roster"}` |
 | `git` | `origin`/`main`, push automático | Usado por `vault sync` e pelo hook de encerramento |
 | `git_https_auth` | `[]` | Header HTTPS por host: `{host_contains, user, token_env?, token_file?}`. Token resolvido por variável de ambiente, arquivo ou cofre do git (`vault auth setup`, guiado). Nunca grava credencial. O MCP de um vault de time usa as regras dele e, se não houver, as do vault pessoal que o monta |
+| `layout` | `org_subfolders: null`, `date_folders: []`, `people_dir: ""`, `people_aliases: {}` | Organização das pastas. `org_subfolders`: pasta por organização em 03, 04, 14 etc., por padrão só com mais de uma organização. `date_folders`: pastas que ganham `AAAA/MM` (ex.: `08 - Changes`, `13 - Journal`). `people_dir`: uma nota de pessoa por membro, ligada ao autor por `author:`; changes e diários citam `[[Pessoa]]`. `people_aliases`: slug do git para nome da nota. `vault people sync` cria as notas que faltam. O validador falha se o layout for violado |
 | `agent_backup` | `{}` | Snapshot das configs dos agentes: `enabled`, `dest`, `keep` (20), `max_file_kb` (2048), `include` (dir -> globs). Ver `bin/agent-backup` |
 | `default_change_server` | `""` | Padrão de `vault change` |
 | `guard` | `allow: []`, `common_org_words: []` | Ajustes do guard |

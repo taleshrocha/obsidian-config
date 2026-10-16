@@ -158,6 +158,7 @@ Um vault de time é um repositório próprio, com `.vault/config.json` próprio.
 4. `git pull --rebase` antes de escrever. `vault-validate <mount>` em `PASS` depois. Nunca `--no-verify` nem `--force`.
 5. Fato omitido ou sanitizado no vault do time vai para uma nota pessoal de complemento. Nada se perde.
 6. No diário pessoal, no máximo uma linha com link para a nota do time.
+7. **Layout do time:** crie notas só por `vault new`, `vault change`, `vault log`, `vault people sync` ou pelo MCP do vault, que aplicam o `layout` do `.vault/config.json`. Nada de pasta nova à mão: sem pasta da organização em vault de uma só organização, changes, incidentes, decisões e diários em `AAAA/MM/`, e uma nota por membro em `people_dir` ligada ao autor por `author:`. O validador (`Layout`) bloqueia o commit se algo fugir.
 
 **Barreiras:** `privacy_checks` no validador do time bloqueia e-mail, telefone, caminho de home, senha literal e Dataview sem escopo. O `shared-vault-guard` gera, só na máquina, uma denylist com nomes, hosts, IPs, IDs e aliases das notas pessoais e das outras organizações, e roda no pre-commit do vault do time. Falso positivo: adicione o termo em `guard.allow`; não contorne.
 

@@ -62,6 +62,8 @@ def roster_members(mount_dir, roster):
     if not roster:
         return set()
     f = mount_dir / roster
+    if f.is_dir():  # roster = pasta com uma nota de pessoa por membro
+        return {p.stem for p in f.glob("*.md") if re.search(r"(?m)^type:\s*person\s*$", p.read_text(encoding="utf-8", errors="replace"))}
     if not f.is_file():
         return set()
     text = f.read_text(encoding="utf-8")

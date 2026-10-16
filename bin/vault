@@ -565,14 +565,56 @@ def cmd_log(args, quiet=False):
         print(c(GREEN, f"✓ Entrada adicionada em [[{rel(f)}]] às {time_str}."))
 
 
+AUTHORS_SKIP = ("99 - Templates", "90 - Files", "00 - Dashboard", "13 - Journal", "08 - Changes", ".obsidian", ".git",
+                ".vault", ".obsidian-config", ".github", ".claude", ".gemini")
+
+
+def add_authors(text, names):
+    """Acrescenta `authors:` (links para as pessoas) ao frontmatter, sem remover quem já está."""
+    m = re.match(r"(?s)---\r?\n(.*?)\r?\n---", text)
+    if not m:
+        return text
+    fm = m.group(1)
+    missing = [n for n in names if f"[[{n}]]" not in fm]
+    if not missing:
+        return text
+    items = "".join(f'\n  - "[[{n}]]"' for n in missing)
+    km = re.search(r"(?m)^authors:[ \t]*$", fm)
+    if km:
+        end = km.end()
+        rest = re.match(r"(?:\n[ \t]+-[^\n]*)*", fm[end:]).group(0)
+        fm2 = fm[:end] + rest + items + fm[end + len(rest):]
+    elif re.search(r"(?m)^authors:", fm):
+        return text  # formato inline do usuário: não mexe
+    else:
+        fm2 = fm + "\nauthors:" + items
+    return text[:m.start(1)] + fm2 + text[m.end(1):]
+
+
+def person_for_git_name(name, create):
+    pdir = vaultcfg.people_dir(CFG)
+    slug = vaultcfg.slugify(name)
+    found = vaultcfg.find_person(CFG, slug)
+    if found or not create:
+        return found.stem if found else ""
+    clean = re.sub(r'[/\\?%*:|"<>]', "-", name).strip()
+    note = pdir / f"{clean}.md"
+    if not note.exists():
+        note.write_text(vaultcfg.person_note_text(CFG, clean, slug), encoding="utf-8")
+        print(c(GREEN, "✓ Criada:") + f" [[{rel(note)}]]")
+    return note.stem
+
+
 def cmd_people(args):
     """vault people sync: uma nota de pessoa por membro (autores dos diários e seções das notas de time)."""
     if (args[:1] or ["sync"])[0] != "sync":
-        sys.exit(c(RED, "Uso: vault people sync"))
+        sys.exit(c(RED, "Uso: vault people sync [--staged]"))
     pdir = vaultcfg.people_dir(CFG)
     if not pdir:
         sys.exit(c(RED, 'Defina "layout": {"people_dir": "15 - Team"} em .vault/config.json.'))
     pdir.mkdir(parents=True, exist_ok=True)
+    if "--staged" in args:
+        return people_stage_authors()
     created = []
     # 1. Autores: pastas do diário por autor e o autor atual.
     j = CFG["journal"]
@@ -644,11 +686,60 @@ def cmd_people(args):
             return m.group(1) if m else ""
         link_notes(sorted(cdir.rglob("*.md")), change_author,
                    lambda t, n: re.sub(r"(?m)^(- \*\*Data:\*\*.*)$", lambda m: f"{m.group(1)}\n- **Autor:** [[{n}]]", t, count=1))
+    # 4. Toda nota de conteúdo cita, em `authors:`, quem a escreveu (histórico do git).
+    skip = (pdir.relative_to(VAULT).as_posix(),) + AUTHORS_SKIP
+    by_file, cur = {}, ""
+    for line in git("log", "--reverse", "--format=@@%an", "--name-only", "-M").stdout.splitlines():
+        if line.startswith("@@"):
+            cur = line[2:]
+        elif line.strip() and cur:
+            by_file.setdefault(line.strip(), [])
+            if cur not in by_file[line.strip()]:
+                by_file[line.strip()].append(cur)
+    tagged = 0
+    for f in sorted(VAULT.rglob("*.md")):
+        r = rel(f)
+        if r.startswith(skip) or ("/" not in r and r.upper().startswith(("AGENTS", "CLAUDE", "GEMINI", "README"))):
+            continue
+        names = [person_for_git_name(n, True) for n in by_file.get(r, [])]
+        names = [n for n in names if n]
+        if not names:
+            continue
+        text = f.read_text(encoding="utf-8")
+        new = add_authors(text, names)
+        if new != text:
+            f.write_text(new, encoding="utf-8")
+            tagged += 1
+    if tagged:
+        print(c(GREEN, f"✓ {tagged} nota(s) com `authors:` atualizado."))
     if linked:
         print(c(GREEN, f"✓ {linked} nota(s) ligada(s) à pessoa autora."))
     for r in created:
         print(c(GREEN, "✓ Criada:") + f" [[{r}]]")
     print(c(GREEN, f"{len(created)} nota(s) de pessoa criada(s).") if created else "Todos os membros já têm nota.")
+
+
+def people_stage_authors():
+    """Pre-commit: acrescenta o autor atual em `authors:` das notas staged (sem tocar em edição não staged)."""
+    me = vaultcfg.ensure_person(CFG)
+    if not me:
+        return 0
+    pdir = vaultcfg.people_dir(CFG).relative_to(VAULT).as_posix()
+    unstaged = set(git("diff", "--name-only").stdout.splitlines())
+    changed = []
+    for r in git("-c", "core.quotepath=false", "diff", "--cached", "--name-only", "--diff-filter=AM").stdout.splitlines():
+        if not r.endswith(".md") or r.startswith((pdir, *AUTHORS_SKIP)) or r in unstaged:
+            continue
+        f = VAULT / r
+        text = f.read_text(encoding="utf-8")
+        new = add_authors(text, [me])
+        if new != text:
+            f.write_text(new, encoding="utf-8")
+            changed.append(r)
+    pn = rel(vaultcfg.find_person(CFG, vaultcfg.author(CFG)))
+    if changed or git("status", "--porcelain", "--", pn).stdout.strip():
+        git("add", "--", *changed, pn)
+    return 0
 
 
 def cmd_sync(_):

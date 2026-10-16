@@ -389,6 +389,26 @@ class LayoutTests(Base):
         self.assertIn("deve ficar em 13 - Journal/<autor>/2020/01/", r.stdout)
         self.assertIn("sem nota de pessoa", r.stdout)
 
+    def test_authors_from_git_history_and_staged_hook(self):
+        v = self.team_vault()
+        git = lambda *a, who="Fulano de Tal": subprocess.run(["git", "-c", f"user.name={who}", "-c", "user.email=a@example.com", *a],  # noqa: E731
+                                                              cwd=v, env=self.env, check=True, capture_output=True)
+        git("init", "-b", "main")
+        write(v / "10 - Procedures" / "Proc.md", "---\ntype: procedure\nname: Proc\n---\n# Proc\n")
+        git("add", "-A")
+        git("commit", "-m", "um")
+        self.run_tool("vault", "people", "sync", vault=v)
+        self.run_tool("vault", "people", "sync", vault=v)
+        proc = (v / "10 - Procedures" / "Proc.md").read_text(encoding="utf-8")
+        self.assertEqual(proc.count('"[[Fulano de Tal]]"'), 1)
+        write(v / "10 - Procedures" / "Outra.md", "---\ntype: procedure\nname: Outra\n---\n# Outra\n")
+        git("add", "10 - Procedures/Outra.md")
+        env = dict(self.env, OBSIDIAN_VAULT_PATH=str(v), VAULT_AUTHOR="Beltrana Silva")
+        subprocess.run([sys.executable, "-X", "utf8", str(BIN / "vault"), "people", "sync", "--staged"], cwd=v, env=env, check=True, capture_output=True)
+        self.assertIn('"[[Beltrana Silva]]"', (v / "10 - Procedures" / "Outra.md").read_text(encoding="utf-8"))
+        staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=v, env=env, capture_output=True, text=True).stdout
+        self.assertIn("15 - Team/Beltrana Silva.md", staged)
+
     def test_people_sync_is_idempotent_and_honors_alias(self):
         v = self.team_vault()
         cfg = json.loads((v / ".vault" / "config.json").read_text())

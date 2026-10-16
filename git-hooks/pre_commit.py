@@ -37,6 +37,9 @@ def main():
             subprocess.call([*py, str(REPO / "bin" / "sync-agents"), "--quiet"])
             git("add", "CLAUDE.md", "GEMINI.md", "AGENTS.md")
 
+    if (cfg.get("layout") or {}).get("people_dir"):
+        subprocess.call([*py, str(REPO / "bin" / "vault"), "people", "sync", "--staged"])
+
     print("[pre-commit] Validando o vault...")
     if subprocess.call([*py, str(REPO / "bin" / "vault-validate"), str(root)]) != 0:
         print("\n[pre-commit] Commit abortado: validação do vault falhou.")

@@ -102,12 +102,56 @@ def vault_dir(explicit=None):
     sys.exit(2)
 
 
+def _host_mounts(vdir):
+    """True quando vdir é um shared_mount declarado no config de um vault acima dele."""
+    for parent in vdir.parents:
+        f = parent / ".vault" / "config.json"
+        if f.is_file():
+            try:
+                host = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return False
+            mounts = [m["path"] if isinstance(m, dict) else m for m in host.get("shared_mounts", [])]
+            return any((parent / m).resolve() == vdir for m in mounts)
+    return False
+
+
+def _unsafe_rel(p):
+    parts = Path(str(p)).parts
+    return not p or Path(str(p)).is_absolute() or ".." in parts or parts[0].startswith(".")
+
+
+def sanitize_team_config(data):
+    """Config de vault de time vem de um repositório que outros editam. Campos que mudam o
+    comportamento da máquina local (arquivo de token, variável de ambiente, destino do backup)
+    e pastas que saem do vault são descartados."""
+    data = dict(data)
+    data.pop("agent_backup", None)
+    data["git_https_auth"] = [{k: v for k, v in r.items() if k not in ("token_file", "token_env")}
+                              for r in data.get("git_https_auth", []) if isinstance(r, dict)]
+    journal = dict(data.get("journal") or {})
+    if "dir" in journal and _unsafe_rel(journal["dir"]):
+        journal.pop("dir")
+    data["journal"] = journal
+    layout = dict(data.get("layout") or {})
+    if "people_dir" in layout and layout["people_dir"] and _unsafe_rel(layout["people_dir"]):
+        layout["people_dir"] = ""
+    layout["date_folders"] = [d for d in layout.get("date_folders", []) if not _unsafe_rel(d)]
+    data["layout"] = layout
+    for key in ("policy_note", "agent_rules_note"):
+        if key in data and _unsafe_rel(data[key]):
+            data.pop(key)
+    return data
+
+
 def load(vault=None):
     vdir = vault_dir(vault)
     cfg_file = vdir / ".vault" / "config.json"
     data = {}
     if cfg_file.is_file():
         data = json.loads(cfg_file.read_text(encoding="utf-8"))
+    if data.get("shared_repo") or _host_mounts(vdir):
+        data = sanitize_team_config(data)
     cfg = _merge(DEFAULTS, data)
     cfg["vault_dir"] = vdir
     cfg["projects_dir"] = str(Path(cfg["projects_dir"]).expanduser())

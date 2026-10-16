@@ -79,13 +79,15 @@ def strip_frontmatter(text: str) -> str:
 
 
 def private_rules() -> str:
-    """Regras privadas do vault, sem frontmatter."""
+    """Regras privadas do vault, sem frontmatter e sem comentário HTML (texto que o Obsidian
+    não mostra não vira instrução global)."""
     if not RULES_FILE.is_file():
         return ""
     text = RULES_FILE.read_text(encoding="utf-8")
     if text.startswith("---"):
         parts = text.split("---", 2)
         text = parts[2] if len(parts) == 3 else text
+    text = re.sub(r"<!--[\s\S]*?-->", "", text)
     lines = [l for l in text.strip().splitlines() if not l.startswith("# ")]
     return "\n".join(lines).strip() + "\n"
 

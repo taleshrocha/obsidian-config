@@ -319,6 +319,93 @@ def check_privacy(vault_dir):
                             errors.append(f"{rel}:{n}: possível senha literal em linha que fala de senha. Use [REDACTED]")
     return errors
 
+# Conteúdo oculto: instrução que o agente lê e o humano não vê (Unicode invisível, comentário HTML,
+# texto escondido por CSS, blob base64). Arquivos de instrução têm varredura estrita.
+BIDI_TAG_RE = re.compile("[؜‪-‮⁦-⁩\U000e0000-\U000e007f]")
+INVISIBLE_RE = re.compile("[­᠎​‌‎‏⁠-⁤﻿]")
+ZWJ = "‍"
+HTML_COMMENT_RE = re.compile(r"<!--([\s\S]*?)-->")
+MANAGED_COMMENT_RE = re.compile(r"^\s*(?:obsidian-config:(?:begin|end)|Canonical-Policy-SHA256:[^\n]*)\s*$")
+SUSPICIOUS_RE = re.compile(  # privacy-gate: allow
+    r"(?i)\b(?:ignore|disregard|forget|ignor[ea]r?|esque[cç]a)\b.{0,40}\b(?:previous|above|prior|instructions?|rules|anteriores?|instru[cç]|regras)"
+    r"|\b(?:you are|act as|você é|voce e|aja como)\b.{0,30}\b(?:assistant|agent|ai|agente|ia|model)\b"
+    r"|system prompt|prompt do sistema|<\s*/?\s*(?:system|instructions?|assistant|user)\s*>"
+    r"|\b(?:do not|don't|não|nao)\s+(?:tell|mention|reveal|show|conte|mencione|revele|mostre|informe)"
+    r"|\b(?:curl|wget|bash -c|sh -c|powershell|iex|eval)\b|\bbase64\b|https?://"
+    r"|\b(?:send|post|upload|exfiltrat\w*|envie|mande|poste)\b.{0,40}\b(?:token|password|secret|senha|credencia\w*|chave|key)")
+HIDDEN_CSS_RE = re.compile(r"(?i)<[a-z][^>]*(?:\shidden[\s>=]|style\s*=\s*['\"][^'\"]*(?:display\s*:\s*none|visibility\s*:\s*hidden|"
+                           r"font-size\s*:\s*0|opacity\s*:\s*0(?:\.0+)?\s*(?:;|['\"])|color\s*:\s*(?:white|#fff\b|#ffffff)))")
+BASE64_RE = re.compile(r"(?<![A-Za-z0-9+/=,])[A-Za-z0-9+/]{%d,}={0,2}")
+FENCE_RE = re.compile(r"```[\s\S]*?```|`[^`\n]+`")
+STRICT_NAMES = {"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
+
+
+def _is_strict(rule_path):
+    return (rule_path in STRICT_NAMES or rule_path.startswith("99 - Templates/") or rule_path == ".vault/config.json"
+            or rule_path == CFG.get("policy_note"))
+
+
+def _b64_blobs(text, min_len):
+    for m in re.finditer(BASE64_RE.pattern % min_len, text):
+        s = m.group(0)
+        # base64 de verdade mistura maiúscula, minúscula e dígito; hash hex e palavras não
+        if re.search(r"[A-Z]", s) and re.search(r"[a-z]", s) and re.search(r"\d", s):
+            yield s
+
+
+def hidden_content_errors(rel, text, rule_path):
+    errors = []
+    raw_source = rule_path.startswith("90 - Files/Sources/")
+    strict = _is_strict(rule_path)
+    for n, line in enumerate(text.splitlines(), 1):
+        for m in BIDI_TAG_RE.finditer(line):
+            errors.append(f"{rel}:{n}: caractere Unicode de controle bidi/tag U+{ord(m.group(0)):04X} (esconde texto do revisor)")
+            break
+        if raw_source:
+            continue
+        for m in INVISIBLE_RE.finditer(line):
+            if m.group(0) == "﻿" and n == 1 and m.start() == 0:
+                continue
+            errors.append(f"{rel}:{n}: caractere invisível U+{ord(m.group(0)):04X}. Remova")
+            break
+        for i, ch in enumerate(line):
+            if ch == ZWJ and (i == 0 or ord(line[i - 1]) < 0x2190 or strict):
+                errors.append(f"{rel}:{n}: zero-width joiner fora de emoji. Remova")
+                break
+    if raw_source or rel.endswith(".excalidraw.md") or not rel.endswith(".md"):
+        return errors
+    visible = FENCE_RE.sub("", text)
+    for m in HTML_COMMENT_RE.finditer(visible):
+        body = m.group(1)
+        if MANAGED_COMMENT_RE.match(body):
+            continue
+        if strict:
+            errors.append(f"{rel}: comentário HTML em arquivo de instrução de agente. Escreva o texto visível ou remova")
+        elif SUSPICIOUS_RE.search(body):
+            errors.append(f"{rel}: comentário HTML com texto dirigido a agente ou comando ({body.strip()[:40]!r}). Remova")
+    if HIDDEN_CSS_RE.search(visible):
+        errors.append(f"{rel}: texto escondido por HTML/CSS (hidden, display:none, cor branca, fonte 0). Remova")
+    for blob in _b64_blobs(text, 60 if strict else 100):
+        errors.append(f"{rel}: bloco base64 de {len(blob)} caracteres ({blob[:12]}...). Instrução codificada passa despercebida; remova ou mova para 90 - Files/Sources")
+        break
+    return errors
+
+
+def check_hidden_content(vault_dir):
+    errors = []
+    targets = []
+    for root, dirs, files in os.walk(vault_dir):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "node_modules"]
+        targets += [os.path.join(root, f) for f in files if f.endswith((".md", ".canvas", ".base"))]
+    targets += [str(p) for p in [Path(vault_dir, ".vault", "config.json"),
+                                 *(Path(vault_dir, m, ".vault", "config.json") for m in SHARED_MOUNTS)] if p.is_file()]
+    for full in targets:
+        rel = os.path.relpath(full, vault_dir).replace(os.sep, "/")
+        with open(full, "r", encoding="utf-8", errors="ignore") as f:
+            errors += hidden_content_errors(rel, f.read(), _rule_path(rel))
+    return errors
+
+
 def check_agent_imports(vault_dir):
     """Vault que mantém o próprio AGENTS.md: CLAUDE.md e GEMINI.md precisam importá-lo."""
     errors = []
@@ -503,6 +590,16 @@ def main():
     else:
         print("✗ Secret scan")
         for e in sec_errs:
+            print(f"  - {e}")
+        all_passed = False
+
+    # 6. Conteúdo oculto (prompt injection)
+    hidden_errs = check_hidden_content(vault_dir)
+    if not hidden_errs:
+        print("✓ Hidden content scan")
+    else:
+        print("✗ Hidden content scan")
+        for e in hidden_errs:
             print(f"  - {e}")
         all_passed = False
 

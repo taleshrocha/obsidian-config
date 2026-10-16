@@ -6,6 +6,8 @@ Executa antes do agente encerrar a execução.
 1. Se houver alterações no vault do Obsidian:
    - Valida a integridade (vault-validate). Se inválido, bloqueia o encerramento.
    - Se válido, faz git add -A, commit e push (remote/branch do config) automaticamente.
+   Vault de time montado: comita só as pastas de conteúdo, bloqueia mudança em arquivo de
+   instrução ou config (AGENTS.md, .vault/, templates, CI) e nunca faz push sozinho.
 2. Se houver alterações não comitadas em repositórios de workspace ativos:
    - Bloqueia o encerramento exigindo que o agente commite e pushe as modificações.
 """
@@ -77,46 +79,81 @@ CFG = vaultcfg.load()
 SHARED_MOUNTS = vaultcfg.shared_mount_paths(CFG)
 
 
-def https_auth_args(remote_url):
-    """Header HTTPS dinâmico para remotes de git_https_auth (token do ambiente, arquivo ou cofre do git; nunca gravado)."""
-    return vaultcfg.https_auth_args(CFG, remote_url)
+def changed_paths(repo: Path):
+    """Caminhos alterados (staged, não staged e novos), incluindo origem e destino de rename."""
+    out = subprocess.run(["git", "-C", str(repo), "-c", "core.quotepath=false", "status", "--porcelain", "-z", "-uall"],
+                         capture_output=True, text=True, timeout=5).stdout
+    paths, entries = [], out.split("\0")
+    i = 0
+    while i < len(entries):
+        e = entries[i]
+        if len(e) > 3:
+            paths.append(e[3:])
+            if e[0] in "RC":
+                i += 1
+                paths.append(entries[i])
+        i += 1
+    return paths
+
+
+def team_content_dirs(shared: Path):
+    """Pastas de conteúdo do vault de time: expected_dirs dele, menos os templates."""
+    return [d for d in vaultcfg.load(shared)["expected_dirs"] if d != "99 - Templates"]
+
+
+def commit_shared_content(mount, shared: Path):
+    """Valida o vault de time e comita só as pastas de conteúdo dele."""
+    validator = REPO / "bin" / "vault-validate"
+    if (shared / ".vault" / "config.json").is_file():
+        env_m = dict(os.environ, OBSIDIAN_VAULT_PATH=str(shared))
+        res = subprocess.run([sys.executable, "-X", "utf8", str(validator), str(shared)], env=env_m,
+                             capture_output=True, text=True, timeout=20)
+        if res.returncode != 0:
+            summary = res.stdout.strip() or res.stderr.strip()
+            return False, f"O vault compartilhado `{mount}` falhou na validação. Corrija antes de concluir:\n{summary}"
+    guard = REPO / "bin" / "shared-vault-guard"
+    if guard.is_file():
+        res = subprocess.run([sys.executable, "-X", "utf8", str(guard), str(shared)], capture_output=True, text=True, timeout=20)
+        if res.returncode != 0:
+            return False, f"Conteúdo do vault pessoal vazou para `{mount}`. Remova antes de concluir:\n{res.stdout.strip()}"
+    content = team_content_dirs(shared)
+    protected = sorted({p for p in changed_paths(shared) if p.split("/", 1)[0] not in content})
+    if protected:
+        return False, (f"O vault do time `{mount}` tem mudança fora das pastas de conteúdo (instrução de agente, config, "
+                       "template ou CI): " + ", ".join(protected) + ". Esses arquivos mudam o comportamento dos agentes "
+                       "de todo o time e não entram no commit automático. Mostre o `git diff` desses arquivos ao operador; "
+                       "com aprovação explícita, comite e envie à mão. Sem aprovação, desfaça com `git restore`/`git clean`.")
+    subprocess.run(["git", "-C", str(shared), "add", "-A", "--", *[d for d in content if (shared / d).exists()]],
+                   capture_output=True, text=True, timeout=10)
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    subprocess.run(["git", "-C", str(shared), "commit", "-m", f"docs: sincroniza vault do time ({now_str})"],
+                   capture_output=True, text=True, timeout=15)
+    return True, ""
 
 
 def sync_shared_vaults(vault_dir: Path):
     """Valida e comita vaults compartilhados montados como subpasta (repos git próprios).
-    Push só quando o repo tem remote 'origin'."""
+    Só as pastas de conteúdo entram no commit automático. Arquivo de instrução ou config alterado
+    bloqueia o encerramento até o operador revisar. Push nunca é automático: o vault do time é
+    lido como instrução pelos agentes dos colegas, então o operador confere o diff antes.
+    Devolve (ok, mensagem): mensagem é o bloqueio quando ok é False, senão o aviso de push pendente."""
+    notices = []
     for mount in SHARED_MOUNTS:
         shared = vault_dir / mount
         if not (shared / ".git").exists():
             continue
         status = subprocess.run(["git", "-C", str(shared), "status", "--porcelain"],
                                 capture_output=True, text=True, timeout=5)
-        if not status.stdout.strip():
-            continue
-        validator = REPO / "bin" / "vault-validate"
-        if (shared / ".vault" / "config.json").is_file():
-            env_m = dict(os.environ, OBSIDIAN_VAULT_PATH=str(shared))
-            res = subprocess.run([sys.executable, "-X", "utf8", str(validator), str(shared)], env=env_m,
-                                 capture_output=True, text=True, timeout=20)
-            if res.returncode != 0:
-                summary = res.stdout.strip() or res.stderr.strip()
-                return False, f"O vault compartilhado `{mount}` falhou na validação. Corrija antes de concluir:\n{summary}"
-        guard = REPO / "bin" / "shared-vault-guard"
-        if guard.is_file():
-            res = subprocess.run([sys.executable, "-X", "utf8", str(guard), str(shared)], capture_output=True, text=True, timeout=20)
-            if res.returncode != 0:
-                return False, f"Conteúdo do vault pessoal vazou para `{mount}`. Remova antes de concluir:\n{res.stdout.strip()}"
-        subprocess.run(["git", "-C", str(shared), "add", "-A"], capture_output=True, text=True, timeout=10)
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        c_res = subprocess.run(["git", "-C", str(shared), "commit", "-m", f"docs: sincroniza vault do time ({now_str})"],
-                               capture_output=True, text=True, timeout=15)
-        remote = subprocess.run(["git", "-C", str(shared), "remote", "get-url", "origin"],
-                                capture_output=True, text=True, timeout=5)
-        if c_res.returncode == 0 and remote.returncode == 0:
-            auth = https_auth_args(remote.stdout)
-            subprocess.run(["git", "-C", str(shared), *auth, "pull", "--rebase"], capture_output=True, text=True, timeout=30)
-            subprocess.run(["git", "-C", str(shared), *auth, "push"], capture_output=True, text=True, timeout=30)
-    return True, ""
+        if status.stdout.strip():
+            ok, err = commit_shared_content(mount, shared)
+            if not ok:
+                return False, err
+        ahead = subprocess.run(["git", "-C", str(shared), "rev-list", "--count", "@{u}..HEAD"],
+                               capture_output=True, text=True, timeout=5).stdout.strip()
+        if ahead and ahead != "0":
+            notices.append(f"`{mount}`: {ahead} commit(s) local(is) sem push. Revise com `git -C \"{shared}\" log -p @{{u}}..` "
+                           "e envie com `git pull --rebase && git push` depois da aprovação do operador.")
+    return True, "\n".join(notices)
 
 def check_workspace_repos(workspace_paths, vault_dir: Path):
     for wp in workspace_paths:
@@ -194,11 +231,13 @@ def main():
                 return
 
     # 1b. Sync shared vaults mounted inside the personal vault
+    notice = ""
     if vault_dir.is_dir():
         ok, err = sync_shared_vaults(vault_dir)
         if not ok:
             print(json.dumps({"decision": "continue", "reason": err}))
             return
+        notice = err
 
     # 2. Check workspace repositories
     workspace_paths = payload.get("workspacePaths", [])
@@ -214,7 +253,7 @@ def main():
         }))
         return
 
-    print(json.dumps({}))
+    print(json.dumps({"systemMessage": notice} if notice else {}))
 
 if __name__ == "__main__":
     main()

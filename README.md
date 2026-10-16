@@ -102,6 +102,20 @@ Quem também tem vault pessoal monta o vault do time como subpasta de `80 - Shar
 - `shared-vault-guard` gera, a cada execução e só na máquina, uma denylist com nomes, hosts, IPs, IDs e aliases das notas pessoais e das outras organizações. Depois varre o mount. O `install.py` coloca um runner dele em `~/.config/obsidian-config/pre-commit.d/<vault_name>/`, que o pre-commit do vault do time executa. A denylist nunca é gravada em repositório.
 - Para um dev sem vault pessoal: `install.py --vault <vault-do-time>`.
 
+### Proteção contra prompt injection
+
+O vault do time é editado por várias pessoas e lido por agentes como contexto e instrução. As ferramentas tratam o conteúdo como dado e limitam o que um agente enganado consegue fazer:
+
+- `vault-validate` reprova conteúdo que o agente lê e o humano não vê: caracteres Unicode de controle bidi e tag, caracteres invisíveis (zero-width, word joiner, BOM fora do início), comentário HTML com texto dirigido a agente ou comando, texto escondido por HTML/CSS e bloco base64 longo. Em `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `99 - Templates/`, `policy_note` e `.vault/config.json` qualquer comentário HTML reprova, exceto os marcadores do bloco gerenciado. Em `90 - Files/Sources/` só bidi e tag reprovam, porque fonte bruta é imutável.
+- O MCP devolve o resultado das ferramentas de leitura entre `<vault-data-<nonce>>` e `</vault-data-<nonce>>`, com um nonce aleatório por processo, e troca caractere invisível por `[U+XXXX]`. Leitura fora do vault ou em pasta oculta (`.git`, `.vault`) é recusada.
+- As ferramentas de escrita do MCP só gravam `.md` em `08 - Changes/`, na pasta do diário e na pasta de pessoas, recusam symlink e conteúdo acima de 64 KB, e reduzem título, cabeçalho e campos de frontmatter a uma linha. `open_in_gui` chama `obsidian-cli` sem shell.
+- Toda chamada de ferramenta do MCP vai para `~/.local/state/obsidian-config/mcp-audit.jsonl` (`$XDG_STATE_HOME`, ou o caminho em `OBSIDIAN_MCP_AUDIT_LOG`), com strings cortadas em 200 caracteres. O arquivo gira em 5 MB.
+- Config de vault de time (`shared_repo: true` ou mount declarado no vault pessoal) não define `token_file`, `token_env` nem `agent_backup`, e pastas com `..`, caminho absoluto ou pasta oculta em `journal.dir`, `layout.people_dir`, `layout.date_folders`, `policy_note` e `agent_rules_note` são descartadas. Token e backup vêm só da config da própria máquina.
+- O hook de encerramento comita no vault do time só as pastas de conteúdo (`expected_dirs` menos `99 - Templates`). Mudança em qualquer outro caminho (`AGENTS.md`, `.vault/`, `.gitlab-ci.yml`, `.obsidian/`, templates) bloqueia o encerramento até o operador revisar o diff. O hook nunca faz push de vault de time: ele avisa os commits pendentes e o push acontece depois da aprovação do operador.
+- `sync-agents` remove comentários HTML da nota de regras privadas antes de gravar as instruções globais.
+
+No servidor Git, proteja a branch principal e exija revisão para `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.vault/` e o arquivo de CI. Essas regras dependem do host e ficam fora deste repositório.
+
 ## Política dos agentes
 
 Quem instala o obsidian-config recebe a mesma disciplina de agente, sem escrever nada:

@@ -181,10 +181,10 @@ class TestMcp(Base):
         self.assertRegex(change.relative_to(v / "08 - Changes").as_posix(), r"^\d{4}/\d{2}/CHG-")
         journal = next((v / "13 - Journal" / "Dev Teste").rglob("*.md"))
         self.assertRegex(journal.relative_to(v / "13 - Journal" / "Dev Teste").as_posix(), r"^\d{4}/\d{2}/\d{4}-\d{2}-\d{2}\.md$")
-        person = (v / "15 - People" / "Dev Teste.md").read_text(encoding="utf-8")
+        person = (v / "15 - People" / "Dev Teste (Org A).md").read_text(encoding="utf-8")
         self.assertIn("author: dev-teste", person)
-        self.assertIn("[[Dev Teste]]", change.read_text(encoding="utf-8"))
-        self.assertIn("[[Dev Teste]]", journal.read_text(encoding="utf-8"))
+        self.assertIn("[[Dev Teste (Org A)]]", change.read_text(encoding="utf-8"))
+        self.assertIn("[[Dev Teste (Org A)]]", journal.read_text(encoding="utf-8"))
 
     def test_shared_repo_pulls_before_tool(self):
         git = lambda *a, cwd: subprocess.run(["git", *a], cwd=cwd, env=self.env, check=True, capture_output=True)
@@ -374,8 +374,8 @@ class LayoutTests(Base):
         self.run_tool("vault", "change", "Titulo", vault=v, input_text="\n\n\n\n\n\n")
         self.assertTrue(list((v / "13 - Journal" / "Dev Teste").glob("*/*/*.md")))
         change = next((v / "08 - Changes").glob("*/*/CHG-*.md"))
-        self.assertIn("[[Dev Teste]]", change.read_text(encoding="utf-8"))
-        self.assertTrue((v / "15 - Team" / "Dev Teste.md").is_file())
+        self.assertIn("[[Dev Teste (Org A)]]", change.read_text(encoding="utf-8"))
+        self.assertTrue((v / "15 - Team" / "Dev Teste (Org A).md").is_file())
         r = self.run_tool("vault-validate", v, vault=v)
         self.assertIn("✓ Layout", r.stdout)
 
@@ -400,14 +400,30 @@ class LayoutTests(Base):
         self.run_tool("vault", "people", "sync", vault=v)
         self.run_tool("vault", "people", "sync", vault=v)
         proc = (v / "10 - Procedures" / "Proc.md").read_text(encoding="utf-8")
-        self.assertEqual(proc.count('"[[Fulano de Tal]]"'), 1)
+        self.assertEqual(proc.count('"[[Fulano de Tal (Org A)]]"'), 1)
         write(v / "10 - Procedures" / "Outra.md", "---\ntype: procedure\nname: Outra\n---\n# Outra\n")
         git("add", "10 - Procedures/Outra.md")
         env = dict(self.env, OBSIDIAN_VAULT_PATH=str(v), VAULT_AUTHOR="Beltrana Silva")
         subprocess.run([sys.executable, "-X", "utf8", str(BIN / "vault"), "people", "sync", "--staged"], cwd=v, env=env, check=True, capture_output=True)
-        self.assertIn('"[[Beltrana Silva]]"', (v / "10 - Procedures" / "Outra.md").read_text(encoding="utf-8"))
+        self.assertIn('"[[Beltrana Silva (Org A)]]"', (v / "10 - Procedures" / "Outra.md").read_text(encoding="utf-8"))
         staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=v, env=env, capture_output=True, text=True).stdout
-        self.assertIn("15 - Team/Beltrana Silva.md", staged)
+        self.assertIn("15 - Team/Beltrana Silva (Org A).md", staged)
+
+    def test_ambiguous_note_names_across_mounts_fail(self):
+        pessoal = self.make_vault(name="pessoal", organizations=["Org A", "Org B"],
+                                  shared_mounts=[{"path": "80 - Shared Vaults/Time", "organization": "Org A"}])
+        mount = pessoal / "80 - Shared Vaults" / "Time"
+        for d in DIRS:
+            (mount / d).mkdir(parents=True, exist_ok=True)
+        write(mount / ".vault" / "config.json", json.dumps({"vault_name": "time", "generate_agent_files": False}))
+        write(mount / "AGENTS.md", "# c\n")
+        for base in (pessoal / "15 - People", mount / "15 - People"):
+            write(base / "Maria Souza.md", "---\ntype: person\nname: Maria Souza\n---\n# M\n")
+        r = self.run_tool("vault-validate", pessoal, vault=pessoal)
+        self.assertIn("nome ambíguo entre vaults 'Maria Souza.md'", r.stdout)
+        (mount / "15 - People" / "Maria Souza.md").rename(mount / "15 - People" / "Maria Souza (Org A).md")
+        r = self.run_tool("vault-validate", pessoal, vault=pessoal)
+        self.assertNotIn("nome ambíguo", r.stdout)
 
     def test_git_name_differing_from_person_note(self):
         v = self.team_vault()
@@ -432,10 +448,10 @@ class LayoutTests(Base):
         write(v / "13 - Journal" / "fulano" / "2020" / "01" / "2020-01-15.md", "---\ntype: journal\ntitle: d\ndate: 2020-01-15\nauthor: fulano\nstatus: completed\n---\n# d\n")
         self.run_tool("vault", "people", "sync", vault=v)
         self.run_tool("vault", "people", "sync", vault=v)
-        self.assertTrue((v / "15 - Team" / "Beltrana.md").is_file())
+        self.assertTrue((v / "15 - Team" / "Beltrana (Org A).md").is_file())
         self.assertFalse((v / "15 - Team" / "fulano.md").exists())
         self.assertFalse((v / "15 - Team" / "Membros.md").exists())
-        self.assertIn("[[Beltrana]]: QA", (v / "15 - Team" / "Equipe.md").read_text(encoding="utf-8"))
+        self.assertIn("[[Beltrana (Org A)]]: QA", (v / "15 - Team" / "Equipe.md").read_text(encoding="utf-8"))
         self.assertIn("[[Fulano de Tal]]", (v / "13 - Journal" / "fulano" / "2020" / "01" / "2020-01-15.md").read_text(encoding="utf-8"))
 
 

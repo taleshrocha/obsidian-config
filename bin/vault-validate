@@ -410,6 +410,37 @@ def check_layout(vault_dir):
     return errors
 
 
+DUP_IGNORE_DIRS = {"99 - Templates", "90 - Files", "node_modules", ".git", ".obsidian", ".obsidian-config", ".claude", ".gemini",
+                   ".vault", ".trash", ".mirrors", ".github"}
+DUP_IGNORE_NAMES = {"agents.md", "claude.md", "gemini.md", "readme.md", "chat.md"}
+
+
+def check_duplicate_names(vault_dir):
+    """Vault com vaults de time montados: o Obsidian resolve [[Nome]] pelo vault inteiro. Duas notas com o
+    mesmo nome em vaults diferentes fazem o link cair na errada (ex.: a mesma pessoa em dois times)."""
+    if not SHARED_MOUNTS:
+        return []
+    root = Path(vault_dir)
+    mounts = {root / m for m in SHARED_MOUNTS}
+    seen = {}
+    for base in [root, *mounts]:
+        if not base.is_dir():
+            continue
+        for dirpath, dirs, files in os.walk(base):
+            d = Path(dirpath)
+            dirs[:] = [x for x in dirs if x not in DUP_IGNORE_DIRS and (d / x) not in mounts and not x.startswith(".")]
+            for name in files:
+                if not name.endswith(".md") or name.lower() in DUP_IGNORE_NAMES or re.match(r"\d{4}-\d{2}-\d{2}\.md$", name):
+                    continue
+                seen.setdefault(name, []).append((d / name).relative_to(root).as_posix())
+    errors = []
+    for name, paths in sorted(seen.items()):
+        roots = {p.split("/", 2)[1] if p.startswith(tuple(m + "/" for m in SHARED_MOUNTS)) else "" for p in paths}
+        if len(paths) > 1 and len(roots) > 1:
+            errors.append(f"nome ambíguo entre vaults '{name}': " + ", ".join(paths) + ". Renomeie (ex.: 'Nome (Org)') para o link não cair na nota errada")
+    return errors
+
+
 def main():
     vault_dir = sys.argv[1] if len(sys.argv) > 1 else _resolve_vault_dir()
     configure(vault_dir)
@@ -487,7 +518,7 @@ def main():
             all_passed = False
 
     # 6b. Shared vault mounts (privacidade e vazamento do vault pessoal)
-    mount_errs = check_shared_mounts(vault_dir)
+    mount_errs = check_shared_mounts(vault_dir) + check_duplicate_names(vault_dir)
     if not mount_errs:
         print("✓ Shared vault mounts")
     else:

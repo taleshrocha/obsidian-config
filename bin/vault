@@ -554,7 +554,7 @@ def cmd_log(args, quiet=False):
     if not f.exists():
         jtype = CFG["journal"].get("type", "meeting")
         who = vaultcfg.author(CFG) if CFG["journal"].get("per_author") else ""
-        shown = (vaultcfg.ensure_person(CFG) or who) if who else ""
+        shown = (vaultcfg.person_dirname(CFG) or who) if who else ""
         title = f"Diário {shown} {date_str}".replace("  ", " ") if who else f"Daily Log {date_str}"
         author_line = f"author: {who}\n" if who else ""
         who_link = vaultcfg.author_link(CFG) if who else ""
@@ -599,7 +599,7 @@ def person_for_git_name(name, create):
     if found or not create:
         return found.stem if found else ""
     clean = re.sub(r'[/\\?%*:|"<>]', "-", name).strip()
-    note = pdir / f"{clean}.md"
+    note = pdir / f"{vaultcfg.person_stem(CFG, clean)}.md"
     if not note.exists():
         note.write_text(vaultcfg.person_note_text(CFG, clean, slug), encoding="utf-8")
         print(c(GREEN, "✓ Criada:") + f" [[{rel(note)}]]")
@@ -631,7 +631,7 @@ def cmd_people(args):
         if vaultcfg.find_person(CFG, slug):
             continue
         name = re.sub(r'[/\\?%*:|"<>]', "-", git_names.get(slug, slug)).strip()
-        note = pdir / f"{name}.md"
+        note = pdir / f"{vaultcfg.person_stem(CFG, name)}.md"
         if note.exists():
             continue
         note.write_text(vaultcfg.person_note_text(CFG, name, slug), encoding="utf-8")
@@ -655,12 +655,12 @@ def cmd_people(args):
                 continue
             m = re.search(r"\*\*Papel:\*\*\s*(.+)", body)
             role = m.group(1).strip().rstrip(".") if m else ""
-            note = pdir / f"{name}.md"
+            note = pdir / f"{vaultcfg.person_stem(CFG, name)}.md"
             if not note.exists():
                 slug = next((sl for sl, gn in git_names.items() if sl == vaultcfg.slugify(name)), "")
                 note.write_text(vaultcfg.person_note_text(CFG, name, slug or vaultcfg.slugify(name), body, role), encoding="utf-8")
                 created.append(rel(note))
-            bullets.append(f"- [[{name}]]" + (f": {role}" if role else ""))
+            bullets.append(f"- [[{note.stem}]]" + (f": {role}" if role else ""))
         team.write_text(parts[0].rstrip() + "\n\n## Membros\n\n" + "\n".join(bullets) + "\n", encoding="utf-8")
     # 3. Liga diários e changes existentes à pessoa autora (idempotente).
     linked = 0

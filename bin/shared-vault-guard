@@ -58,19 +58,32 @@ def frontmatter(path):
     return props
 
 
+def _people_names(folder):
+    """Nomes das notas de pessoa: arquivo, arquivo sem o sufixo '(Org)' e campo `name`."""
+    names = set()
+    for p in folder.glob("*.md"):
+        text = p.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"(?m)^type:\s*person\s*$", text):
+            names |= {p.stem, re.sub(r"\s*\([^()]*\)\s*$", "", p.stem)}
+            m = re.search(r"(?m)^name:\s*(.+)$", text)
+            if m:
+                names.add(m.group(1).strip())
+    return names
+
+
 def roster_members(mount_dir, roster):
     if not roster:
         return set()
     f = mount_dir / roster
     if f.is_dir():  # roster = pasta com uma nota de pessoa por membro
-        return {p.stem for p in f.glob("*.md") if re.search(r"(?m)^type:\s*person\s*$", p.read_text(encoding="utf-8", errors="replace"))}
+        return _people_names(f)
     if not f.is_file():
         return set()
     text = f.read_text(encoding="utf-8")
     names = {n.strip() for n in re.findall(r"^## (.+)$", text, re.M)}
     names |= {n.strip() for n in re.findall(r"^\s*[-*]\s+\[\[([^\]|#]+)", text, re.M)}
     # Uma nota de pessoa por membro, na pasta do roster (layout.people_dir).
-    names |= {p.stem for p in f.parent.glob("*.md") if re.search(r"(?m)^type:\s*person\s*$", p.read_text(encoding="utf-8", errors="replace"))}
+    names |= _people_names(f.parent)
     names.discard("Membros")
     return names
 

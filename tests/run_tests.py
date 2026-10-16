@@ -409,6 +409,19 @@ class LayoutTests(Base):
         staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=v, env=env, capture_output=True, text=True).stdout
         self.assertIn("15 - Team/Beltrana Silva.md", staged)
 
+    def test_git_name_differing_from_person_note(self):
+        v = self.team_vault()
+        write(v / "15 - Team" / "Fulano de Tal.md", "---\ntype: person\nname: Fulano de Tal\n---\n# Fulano\n")  # sem author
+        write(v / "15 - Team" / "Beltrana Silva.md", "---\ntype: person\nname: Beltrana Silva\ngit_authors: [bel-dev]\n---\n# B\n")
+        sys.path.insert(0, str(REPO / "lib"))
+        cfg = vaultcfg.load(v)
+        self.assertEqual(vaultcfg.find_person(cfg, "fulanodetal").stem, "Fulano de Tal")  # nome colado
+        self.assertEqual(vaultcfg.find_person(cfg, "bel-dev").stem, "Beltrana Silva")  # git_authors
+        self.assertIsNone(vaultcfg.find_person(cfg, "desconhecido"))
+        env = dict(self.env, OBSIDIAN_VAULT_PATH=str(v), VAULT_AUTHOR="fulanodetal")
+        subprocess.run([sys.executable, "-X", "utf8", str(BIN / "vault"), "log", "x"], env=env, check=True, capture_output=True)
+        self.assertEqual(sorted(p.name for p in (v / "15 - Team").glob("*.md")), ["Beltrana Silva.md", "Fulano de Tal.md"])
+
     def test_people_sync_is_idempotent_and_honors_alias(self):
         v = self.team_vault()
         cfg = json.loads((v / ".vault" / "config.json").read_text())

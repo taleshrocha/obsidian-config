@@ -163,19 +163,46 @@ def _frontmatter_field(text, key):
     return f.group(1).strip().strip("'\"") if f else ""
 
 
+def _frontmatter_list(text, key):
+    """Valores de uma propriedade lista (`key: [a, b]` ou itens `- a`) ou texto simples."""
+    m = re.search(r"(?s)\A---\r?\n(.*?)\r?\n---", text)
+    if not m:
+        return []
+    km = re.search(rf"(?m)^{re.escape(key)}:[ \t]*(.*)$", m.group(1))
+    if not km:
+        return []
+    inline = km.group(1).strip()
+    if inline:
+        return [v.strip().strip("'\"") for v in inline.strip("[]").split(",") if v.strip()]
+    block = re.match(r"(?:\n[ \t]+-[^\n]*)*", m.group(1)[km.end():]).group(0)
+    return [l.split("-", 1)[1].strip().strip("'\"") for l in block.splitlines() if l.strip()]
+
+
+def _norm(text):
+    return re.sub(r"[^a-z0-9]", "", slugify(text))
+
+
 def find_person(cfg, slug):
-    """Nota de pessoa cujo `author:` é o slug (ou cujo nome vira o slug). Devolve o Path ou None."""
+    """Nota de pessoa de um autor do git. O nome no git pode diferir do nome da nota, então vale,
+    nesta ordem: alias na config, `author:` ou `git_authors:` da nota, nome igual ignorando
+    espaços e hífens ("Maria Souza" = "mariasouza"). Devolve o Path ou None."""
     d = people_dir(cfg)
     if not d or not d.is_dir():
         return None
     alias = cfg.get("layout", {}).get("people_aliases", {}).get(slug)
     if alias and (d / f"{alias}.md").is_file():
         return d / f"{alias}.md"
+    notes = []
     for f in sorted(d.glob("*.md")):
         text = f.read_text(encoding="utf-8", errors="replace")
-        if _frontmatter_field(text, "type") != "person":
-            continue
-        if _frontmatter_field(text, "author") == slug or (not _frontmatter_field(text, "author") and slugify(f.stem) == slug):
+        if _frontmatter_field(text, "type") == "person":
+            notes.append((f, text))
+    for f, text in notes:
+        ids = [_frontmatter_field(text, "author"), *_frontmatter_list(text, "git_authors")]
+        if slug in {slugify(i) for i in ids if i}:
+            return f
+    for f, text in notes:
+        if _norm(f.stem) == _norm(slug):
             return f
     return None
 

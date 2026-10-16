@@ -602,6 +602,7 @@ def person_for_git_name(name, create):
     if not note.exists():
         note.write_text(vaultcfg.person_note_text(CFG, clean, slug), encoding="utf-8")
         print(c(GREEN, "✓ Criada:") + f" [[{rel(note)}]]")
+        print(c(YELLOW, f"  Se '{name}' (nome no git) for alguém que já tem nota, apague esta e acrescente `git_authors: [{slug}]` na nota existente."))
     return note.stem
 
 

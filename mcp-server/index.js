@@ -70,6 +70,16 @@ function frontmatterField(text, key) {
     return f ? f[1].trim().replace(/^['"]|['"]$/g, "") : "";
 }
 
+function frontmatterList(text, key) {
+    const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!m) return [];
+    const km = m[1].match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"));
+    if (!km) return [];
+    if (km[1].trim()) return km[1].trim().replace(/^\[|\]$/g, "").split(",").map(v => v.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
+    const rest = m[1].slice(km.index + km[0].length).match(/^(?:\n[ \t]+-[^\n]*)*/)[0];
+    return rest.split("\n").filter(l => l.trim()).map(l => l.split("-").slice(1).join("-").trim().replace(/^['"]|['"]$/g, ""));
+}
+
 // Nota de pessoa do autor atual em people_dir (criada se faltar). Devolve o nome da nota, ou "" se desligado.
 function ensurePerson() {
     if (!LAYOUT.people_dir) return "";
@@ -80,8 +90,13 @@ function ensurePerson() {
     for (const f of fs.readdirSync(dir).filter(n => n.endsWith(".md")).sort()) {
         const text = fs.readFileSync(path.join(dir, f), "utf8");
         if (frontmatterField(text, "type") !== "person") continue;
-        const a = frontmatterField(text, "author");
-        if (a === AUTHOR || (!a && slugify(f.slice(0, -3)) === AUTHOR)) return f.slice(0, -3);
+        const ids = [frontmatterField(text, "author"), ...frontmatterList(text, "git_authors")];
+        if (ids.some(i => i && slugify(i) === AUTHOR)) return f.slice(0, -3);
+    }
+    // Nome no git difere do nome da nota: "Maria Souza" = "mariasouza" (ignora espaços e hífens).
+    const norm = t => slugify(t).replace(/-/g, "");
+    for (const f of fs.readdirSync(dir).filter(n => n.endsWith(".md")).sort()) {
+        if (frontmatterField(fs.readFileSync(path.join(dir, f), "utf8"), "type") === "person" && norm(f.slice(0, -3)) === norm(AUTHOR)) return f.slice(0, -3);
     }
     let display = process.env.VAULT_AUTHOR || "";
     if (!display) {
